@@ -1,0 +1,11 @@
+numpy
+pyaudio
+scipy
+screeninfo
+pygetwindow
+pywin32
+pyyaml
+gTTS
+pygame
+pytest
+pyinstaller
