@@ -49,6 +49,25 @@ class ClapDetector:
         if self.p:
             self.p.terminate()
 
+    def calibrate(self):
+        """Calibration mode to check volume levels."""
+        self._initialize_audio()
+        logger.info("Calibration started. Peak levels will be printed. Press Ctrl+C to stop.")
+        try:
+            while True:
+                frame_data = self.stream.read(self.frame_size, exception_on_overflow=False)
+                frame = np.frombuffer(frame_data, dtype=np.float32)
+                # Apply bandpass filter to see what the detector "sees"
+                frame_filtered, _ = signal.sosfilt(self.sos, frame, zi=np.zeros((self.sos.shape[0], 2)))
+                peak = np.max(np.abs(frame_filtered))
+                if peak > 0.01: # Filter out absolute silence
+                    # Create a simple visual bar
+                    bar = "#" * int(peak * 50)
+                    print(f"Level: {peak:.4f} {bar}")
+                time.sleep(0.05)
+        finally:
+            self._cleanup_audio()
+
     def listen_for_double_clap(self, callback=None):
         """
         Listens continuously for two claps.

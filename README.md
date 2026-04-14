@@ -8,7 +8,10 @@ A polished Windows background utility that triggers a "morning routine" upon det
 - **Configurable Routines**: Define apps, URLs, and target monitors in a simple YAML file.
 - **Window Management**: Best-effort positioning of Discord, Spotify, and browser windows.
 - **Jarvis Feedback**: Optional TTS (Text-to-Speech) for a premium feel.
-- **Background Mode**: Low resource usage, runs quietly in the system tray (or as a background process).
+- **System Tray**: Runs quietly in the background with a tray icon for manual control.
+- **Smart Launching**: Detects if apps are already running and just repositions them.
+- **Screen Splitting**: Support for "left" or "right" half positioning in routines.
+- **Calibration Mode**: Visual feedback to help you tune microphone sensitivity.
 - **Portable**: Can be bundled into a single `.exe` for easy use.
 
 ## Quick Start (Bundled Version)
@@ -46,19 +49,26 @@ routines:
    python -m src.main
    ```
    Use `--dry-run` to test your routine without actually opening anything.
+   Use `--calibrate` to check your microphone levels.
 
 ## Background Usage & Startup on Boot
 
-### Manual Background Run
+The app automatically starts in the system tray.
+
+### Manual Background Run (No Console)
 Use `pythonw.exe` on Windows to run without a console window:
 ```bash
 start /b pythonw -m src.main
 ```
 
 ### Run on Boot
+Run the included startup helper:
+```bash
+python src/startup_helper.py
+```
+Or manually:
 1. Press `Win + R`, type `shell:startup`, and hit Enter.
-2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file for the Python version) in this folder.
-3. Windows will now start the launcher automatically when you log in.
+2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file) in this folder.
 
 ## Troubleshooting
 
