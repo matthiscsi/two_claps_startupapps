@@ -1,0 +1,32 @@
+audio_settings:
+  enabled: true
+  startup_phrase: Good morning, Boss. Initializing systems.
+  success_phrase: Systems online. Have a productive day.
+clap_settings:
+  filter_high: 1800
+  filter_low: 1400
+  frame_duration: 0.02
+  min_interval: 0.2
+  order: 2
+  sampling_rate: 44100
+  threshold: 0.2
+logging:
+  file: launcher.log
+  level: INFO
+routines:
+  morning_routine:
+  - delay: 0
+    monitor: 0
+    name: HLN News
+    path: https://www.hln.be/
+    type: url
+  - delay: 2
+    monitor: 1
+    name: Discord
+    path: discord
+    type: app
+  - delay: 1
+    monitor: 1
+    name: Spotify
+    path: spotify
+    type: app
