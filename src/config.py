@@ -1,6 +1,18 @@
 import yaml
 import os
+import sys
 import copy
+import shutil
+
+def get_resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 DEFAULT_CONFIG = {
     "clap_settings": {
@@ -52,6 +64,17 @@ class Config:
     def __init__(self, config_path="config.yaml"):
         self.config_path = config_path
         self.data = copy.deepcopy(DEFAULT_CONFIG)
+
+        # If config doesn't exist locally, try to extract it from bundled assets
+        if not os.path.exists(config_path):
+            try:
+                bundled_path = get_resource_path("config.yaml")
+                if os.path.exists(bundled_path) and bundled_path != os.path.abspath(config_path):
+                    shutil.copy(bundled_path, config_path)
+                    print(f"Extracted bundled config to {config_path}")
+            except Exception as e:
+                print(f"Note: Could not extract bundled config: {e}")
+
         if os.path.exists(config_path):
             self.load()
         else:

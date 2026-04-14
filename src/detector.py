@@ -49,12 +49,12 @@ class ClapDetector:
         if self.p:
             self.p.terminate()
 
-    def calibrate(self):
+    def calibrate(self, stop_event=None):
         """Calibration mode to check volume levels."""
         self._initialize_audio()
         logger.info("Calibration started. Peak levels will be printed. Press Ctrl+C to stop.")
         try:
-            while True:
+            while stop_event is None or not stop_event.is_set():
                 frame_data = self.stream.read(self.frame_size, exception_on_overflow=False)
                 frame = np.frombuffer(frame_data, dtype=np.float32)
                 # Apply bandpass filter to see what the detector "sees"
@@ -68,7 +68,7 @@ class ClapDetector:
         finally:
             self._cleanup_audio()
 
-    def listen_for_double_clap(self, callback=None):
+    def listen_for_double_clap(self, callback=None, stop_event=None):
         """
         Listens continuously for two claps.
         Calls callback() when detected.
@@ -83,8 +83,14 @@ class ClapDetector:
 
         logger.info("Listening for claps...")
         try:
-            while True:
-                frame_data = self.stream.read(self.frame_size, exception_on_overflow=False)
+            while stop_event is None or not stop_event.is_set():
+                try:
+                    # Reducing block size for read can sometimes help with latency
+                    frame_data = self.stream.read(self.frame_size, exception_on_overflow=False)
+                except Exception as e:
+                    logger.error(f"Error reading audio stream: {e}")
+                    time.sleep(0.1)
+                    continue
                 frame = np.frombuffer(frame_data, dtype=np.float32)
                 frame = frame * self.window
 
