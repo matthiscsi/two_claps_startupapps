@@ -28,3 +28,14 @@ def test_launcher_invalid_routine(mock_config):
         launcher = Launcher(mock_config, dry_run=True)
         launcher.launch_routine("non_existent")
         # Should log error and return gracefully
+
+def test_smart_launching(mock_config):
+    with patch('src.launcher.get_monitors') as mock_monitors:
+        mock_monitors.return_value = [MagicMock()]
+        launcher = Launcher(mock_config, dry_run=True)
+
+        with patch.object(launcher, 'is_app_running', return_value=True) as mock_running:
+            with patch.object(launcher, 'position_window') as mock_pos:
+                launcher.launch_item({"name": "TestApp", "type": "app", "path": "path", "monitor": 0})
+                mock_pos.assert_called_once()
+                # Should not call launch_app if running

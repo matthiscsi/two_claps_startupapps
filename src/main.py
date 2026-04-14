@@ -4,6 +4,13 @@ import os
 import signal
 import time
 import logging
+import threading
+from PIL import Image, ImageDraw
+
+try:
+    import pystray
+except ImportError:
+    pystray = None
 
 from src.config import Config
 from src.detector import ClapDetector
@@ -17,7 +24,18 @@ def parse_args():
     parser.add_argument("--routine", default="morning_routine", help="Routine to run on double clap")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually launch apps, just log")
     parser.add_argument("--no-audio", action="store_true", help="Disable audio/TTS")
+    parser.add_argument("--calibrate", action="store_true", help="Calibration mode to check volume levels")
+    parser.add_argument("--no-tray", action="store_true", help="Disable system tray icon")
     return parser.parse_args()
+
+def create_image():
+    # Generate a simple icon
+    width = 64
+    height = 64
+    image = Image.new('RGB', (width, height), (0, 0, 0))
+    dc = ImageDraw.Draw(image)
+    dc.rectangle((width // 2 - 10, height // 2 - 10, width // 2 + 10, height // 2 + 10), fill=(0, 255, 255))
+    return image
 
 def main():
     args = parse_args()
@@ -42,6 +60,15 @@ def main():
     launcher = Launcher(config, dry_run=args.dry_run)
     detector = ClapDetector(config)
 
+    if args.calibrate:
+        logger.info("ENTERING CALIBRATION MODE. Press Ctrl+C to exit.")
+        # We need a calibrate method in detector
+        if hasattr(detector, 'calibrate'):
+            detector.calibrate()
+        else:
+            logger.error("Calibration not implemented in detector yet.")
+        return
+
     def on_double_clap():
         logger.info("Triggering routine...")
         audio.play_startup()
@@ -60,6 +87,26 @@ def main():
     logger.info(f"System ready. Routine '{args.routine}' will trigger on double clap.")
     if args.dry_run:
         logger.info("RUNNING IN DRY-RUN MODE")
+
+    def run_tray():
+        if not pystray or args.no_tray:
+            return
+
+        def on_quit(icon, item):
+            icon.stop()
+            os._exit(0)
+
+        def on_trigger(icon, item):
+            threading.Thread(target=on_double_clap).start()
+
+        icon = pystray.Icon("JarvisLauncher", create_image(), "Jarvis Launcher", menu=pystray.Menu(
+            pystray.MenuItem("Trigger " + args.routine, on_trigger),
+            pystray.MenuItem("Quit", on_quit)
+        ))
+        icon.run()
+
+    if pystray and not args.no_tray:
+        threading.Thread(target=run_tray, daemon=True).start()
 
     try:
         detector.listen_for_double_clap(callback=on_double_clap)

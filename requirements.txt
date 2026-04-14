@@ -9,3 +9,5 @@ gTTS
 pygame
 pytest
 pyinstaller
+pystray
+Pillow

@@ -38,7 +38,13 @@ class Launcher:
         item_type = item.get("type")
         path = item.get("path")
         monitor_idx = item.get("monitor", 0)
+        position = item.get("position", "full")
         delay = item.get("delay", 0)
+
+        if self.is_app_running(name):
+            logger.info(f"{name} is already running. Repositioning...")
+            self.position_window(name, monitor_idx, position=position, is_browser=(item_type=="url"))
+            return
 
         if delay > 0:
             logger.info(f"Waiting {delay}s before launching {name}...")
@@ -56,12 +62,12 @@ class Launcher:
                 webbrowser.open(path)
                 # Browser windows are hard to target immediately, we might need to wait
                 time.sleep(1)
-                self.position_window(name, monitor_idx, is_browser=True)
+                self.position_window(name, monitor_idx, position=position, is_browser=True)
             elif item_type == "app":
                 self.launch_app(path)
                 # Wait a bit for the app to open
                 time.sleep(2)
-                self.position_window(name, monitor_idx)
+                self.position_window(name, monitor_idx, position=position)
             else:
                 logger.warning(f"Unknown item type: {item_type}")
         except Exception as e:
@@ -83,7 +89,17 @@ class Launcher:
         else:
             subprocess.Popen(path, shell=True)
 
-    def position_window(self, name, monitor_idx, is_browser=False):
+    def is_app_running(self, name):
+        if gw is None: return False
+        try:
+            for win in gw.getAllWindows():
+                if name.lower() in win.title.lower():
+                    return True
+        except:
+            pass
+        return False
+
+    def position_window(self, name, monitor_idx, position="full", is_browser=False):
         if win32gui is None or gw is None:
             logger.warning("Window management not available (non-Windows or missing libs).")
             return
@@ -101,31 +117,42 @@ class Launcher:
         found_window = None
 
         # Try finding by name in title
-        all_windows = gw.getAllWindows()
-        for win in all_windows:
-            if name.lower() in win.title.lower():
-                found_window = win
-                break
+        try:
+            all_windows = gw.getAllWindows()
+            for win in all_windows:
+                if name.lower() in win.title.lower():
+                    found_window = win
+                    break
+        except:
+            pass
 
         if not found_window and is_browser:
             # Try finding the active browser window
-            found_window = gw.getActiveWindow()
+            try:
+                found_window = gw.getActiveWindow()
+            except:
+                pass
 
         if found_window:
-            logger.info(f"Positioning window '{found_window.title}' to monitor {monitor_idx}")
+            logger.info(f"Positioning window '{found_window.title}' to monitor {monitor_idx} ({position})")
             try:
-                # Move and maximize or just resize
-                # win.moveTo(target_monitor.x, target_monitor.y)
-                # win.maximize()
-
                 # Using win32gui for more reliability
                 hwnd = found_window._hWnd
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+                x, y = target_monitor.x, target_monitor.y
+                width, height = target_monitor.width, target_monitor.height
+
+                if position == "left":
+                    width = width // 2
+                elif position == "right":
+                    x = x + (width // 2)
+                    width = width // 2
+
                 win32gui.SetWindowPos(hwnd, win32con.HWND_TOP,
-                                     target_monitor.x, target_monitor.y,
-                                     target_monitor.width, target_monitor.height,
+                                     x, y,
+                                     width, height,
                                      win32con.SWP_SHOWWINDOW)
-                # win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
             except Exception as e:
                 logger.error(f"Error positioning window: {e}")
         else:
