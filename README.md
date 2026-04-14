@@ -1,61 +1,92 @@
-# `two_claps_open` 👏
-Open Chrome (or any file/app) by simply clapping twice — just like [Tony Stark](https://www.youtube.com/watch?v=OT2b5KzMoC0&t=101s).
+# 👏 Jarvis Double-Clap Launcher
 
-#### 🔸Open a presentation slide and chrome by clapping twice (two_claps_open.py)
+A polished Windows background utility that triggers a "morning routine" upon detecting two claps. Inspired by Tony Stark's Jarvis, it opens your essential apps, positions them across your monitors, and greets you with a wake-up message.
 
+## Features
 
-https://github.com/user-attachments/assets/15849e57-b662-4096-8f67-f8937ae61711
+- **Reliable Clap Detection**: Optimized frequency-based detection.
+- **Configurable Routines**: Define apps, URLs, and target monitors in a simple YAML file.
+- **Window Management**: Best-effort positioning of Discord, Spotify, and browser windows.
+- **Jarvis Feedback**: Optional TTS (Text-to-Speech) for a premium feel.
+- **System Tray**: Runs quietly in the background with a tray icon for manual control and settings.
+- **Configuration UI**: Easily configure clap sensitivity, audio settings, and routine items via a graphical interface.
+- **Smart Launching**: Detects if apps are already running (via window or process fallback) and just repositions them.
+- **Screen Splitting**: Support for "left" or "right" half positioning in routines.
+- **Calibration Mode**: Visual feedback to help you tune microphone sensitivity.
+- **Portable**: Can be bundled into a single `.exe` for easy use.
 
+## Quick Start (Bundled Version)
 
-#### 🔸Activate a voice assistant agent by clapping twice (agent_on_clap.py)
+1. Download the latest `JarvisLauncher.exe` from releases.
+2. Run it once to generate the default `config.yaml`.
+3. Edit `config.yaml` to match your monitor setup and app paths.
+4. Restart the app. Clap twice. Enjoy.
 
+## Configuration
 
-https://github.com/user-attachments/assets/3b0ef232-7229-4ca4-9d57-f2fc325295bc
+You can configure the launcher directly through the system tray:
+1. Right-click the Jarvis icon in the system tray.
+2. Select **Settings**.
+3. Adjust clap sensitivity, audio settings, or add/remove apps and URLs from your morning routine.
 
+All changes are saved automatically to `config.yaml` and applied immediately.
 
-## Clap Detection
-To figure out what a clap "looks like" in terms of sound, I first recorded a sample clap and ran a Fourier transform on it to check the frequency content.
-From the analysis, most of the energy from the clap is concentrated around 1.4kHz to 1.8kHz. 
-Based on this, I set up a bandpass filter to isolate only that range and ignore irrelevant noise.
-After filtering, I used peak detection to recognize when a clap happens in real time. (see figure below)
-Once two peaks (claps) are detected with some minimum spacing, the system launches Chrome (or any command you define).
+### Manual Configuration (`config.yaml`)
 
-![fig](https://github.com/user-attachments/assets/fa15cd8d-8690-4a86-b878-273dbac2f241)
-
-## Dependencies
-##### 🗂️ requirements-core.txt (for `two_claps_open.py`)
-```bash
-numpy
-pyaudio
-scipy
-pywin32
+```yaml
+routines:
+  morning_routine:
+    - name: "HLN News"
+      type: "url"
+      path: "https://www.hln.be/"
+      monitor: 0  # 0 is main, 1 is secondary
+    - name: "Discord"
+      type: "app"
+      path: "discord"
+      monitor: 1
+      delay: 2
 ```
 
-##### 🗂️ requirements-agent.txt (for `agent_on_clap.py`) 
-```bash
-PyAudio
-pygame
-SpeechRecognition
-dotenv
-gTTS
-langchain
-langchain-core
-langchain-google
-langchain-google-genai
-scipy
-```
-> 💡 Don’t forget to set your Google API key in a .env file. Google offers a free tier for API usage.
+## Setup (Development Mode)
 
-## For windows users (optional)
-Run with 「Ctrl + Alt + P」
-#### .bat
+1. **Install Python 3.10+**
+2. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Run**:
+   ```bash
+   python -m src.main
+   ```
+   Use `--dry-run` to test your routine without actually opening anything.
+   Use `--calibrate` to check your microphone levels.
+
+## Background Usage & Startup on Boot
+
+The app automatically starts in the system tray.
+
+### Manual Background Run (No Console)
+Use `pythonw.exe` on Windows to run without a console window:
 ```bash
-@echo off
-cd /d C:\your\file\path
-pipenv run python two_claps_open.py
+start /b pythonw -m src.main
 ```
 
-#### .ahk
+### Run on Boot
+Run the included startup helper:
 ```bash
-^!p::Run "C:\your\file\path\run_python.bat"
+python src/startup_helper.py
 ```
+Or manually:
+1. Press `Win + R`, type `shell:startup`, and hit Enter.
+2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file) in this folder.
+
+## Troubleshooting
+
+- **Sensitivity**: Adjust `threshold` and `min_interval` in `config.yaml` if claps aren't detected or there are false positives.
+- **Window Positioning**: Some apps (like Discord) take time to load. Increase the `delay` in `config.yaml` to ensure the window is ready before the launcher tries to move it.
+- **Audio**: Ensure your default playback device is set correctly for TTS feedback.
+
+## Limitations
+
+- Precise window placement for browsers can be tricky if multiple windows are open.
+- App "names" in config should match the window title (or a part of it) for reliable positioning.
