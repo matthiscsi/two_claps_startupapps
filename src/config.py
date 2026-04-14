@@ -1,5 +1,6 @@
 import yaml
 import os
+import copy
 
 DEFAULT_CONFIG = {
     "clap_settings": {
@@ -50,7 +51,7 @@ DEFAULT_CONFIG = {
 class Config:
     def __init__(self, config_path="config.yaml"):
         self.config_path = config_path
-        self.data = DEFAULT_CONFIG.copy()
+        self.data = copy.deepcopy(DEFAULT_CONFIG)
         if os.path.exists(config_path):
             self.load()
         else:

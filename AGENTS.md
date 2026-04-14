@@ -30,6 +30,6 @@ To add a new routine type (e.g., "shell_command"):
 ## Development Workflow
 
 1. Install dependencies: `pip install -r requirements.txt`
-2. Run in dev mode: `python src/main.py --dry-run`
+2. Run in dev mode: `python -m src.main --dry-run`
 3. Run tests: `pytest`
 4. Build EXE: `python build_exe.py` (Windows recommended)

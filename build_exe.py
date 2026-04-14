@@ -4,14 +4,15 @@ import sys
 
 def build():
     # Determine separator for path
-    sep = os.pathsep
+    sep = ';' if sys.platform == 'win32' else ':'
 
     params = [
         'src/main.py',
         '--name=JarvisLauncher',
         '--onefile',
         '--clean',
-        '--add-data=config.yaml:.',
+        f'--add-data=config.yaml{sep}.',
+        '--paths=.',
         # Include hidden imports if necessary
         '--hidden-import=pkg_resources.py2_warn', # Sometimes needed for gTTS/others
     ]

@@ -43,7 +43,7 @@ routines:
    ```
 3. **Run**:
    ```bash
-   python src/main.py
+   python -m src.main
    ```
    Use `--dry-run` to test your routine without actually opening anything.
 
@@ -52,7 +52,7 @@ routines:
 ### Manual Background Run
 Use `pythonw.exe` on Windows to run without a console window:
 ```bash
-start /b pythonw src/main.py
+start /b pythonw -m src.main
 ```
 
 ### Run on Boot

@@ -19,3 +19,20 @@ def test_config_load_custom_values():
     assert config.clap_settings["filter_low"] == 1400
 
     os.remove("custom_config.yaml")
+
+def test_config_deep_copy_regression():
+    from src.config import DEFAULT_CONFIG
+
+    # Create first instance and mutate its nested data
+    config1 = Config("config1.yaml")
+    config1.data["clap_settings"]["threshold"] = 99.9
+
+    # Create second instance
+    config2 = Config("config2.yaml")
+
+    # Check that DEFAULT_CONFIG and config2 are NOT affected by config1 mutation
+    assert DEFAULT_CONFIG["clap_settings"]["threshold"] == 0.2
+    assert config2.clap_settings["threshold"] == 0.2
+
+    if os.path.exists("config1.yaml"): os.remove("config1.yaml")
+    if os.path.exists("config2.yaml"): os.remove("config2.yaml")
