@@ -8,8 +8,9 @@ A polished Windows background utility that triggers a "morning routine" upon det
 - **Configurable Routines**: Define apps, URLs, and target monitors in a simple YAML file.
 - **Window Management**: Best-effort positioning of Discord, Spotify, and browser windows.
 - **Jarvis Feedback**: Optional TTS (Text-to-Speech) for a premium feel.
-- **System Tray**: Runs quietly in the background with a tray icon for manual control.
-- **Smart Launching**: Detects if apps are already running and just repositions them.
+- **System Tray**: Runs quietly in the background with a tray icon for manual control and settings.
+- **Configuration UI**: Easily configure clap sensitivity, audio settings, and routine items via a graphical interface.
+- **Smart Launching**: Detects if apps are already running (via window or process fallback) and just repositions them.
 - **Screen Splitting**: Support for "left" or "right" half positioning in routines.
 - **Calibration Mode**: Visual feedback to help you tune microphone sensitivity.
 - **Portable**: Can be bundled into a single `.exe` for easy use.
@@ -21,7 +22,16 @@ A polished Windows background utility that triggers a "morning routine" upon det
 3. Edit `config.yaml` to match your monitor setup and app paths.
 4. Restart the app. Clap twice. Enjoy.
 
-## Configuration (`config.yaml`)
+## Configuration
+
+You can configure the launcher directly through the system tray:
+1. Right-click the Jarvis icon in the system tray.
+2. Select **Settings**.
+3. Adjust clap sensitivity, audio settings, or add/remove apps and URLs from your morning routine.
+
+All changes are saved automatically to `config.yaml` and applied immediately.
+
+### Manual Configuration (`config.yaml`)
 
 ```yaml
 routines:
@@ -60,6 +70,9 @@ Use `pythonw.exe` on Windows to run without a console window:
 ```bash
 start /b pythonw -m src.main
 ```
+Or manually:
+1. Press `Win + R`, type `shell:startup`, and hit Enter.
+2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file) in this folder.
 
 ### Run on Boot
 Run the included startup helper:

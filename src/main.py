@@ -17,6 +17,7 @@ from src.detector import ClapDetector
 from src.launcher import Launcher
 from src.audio import AudioEngine
 from src.logger import setup_logger
+from src.ui import SettingsUI
 
 class JarvisApp:
     def __init__(self, args):
@@ -60,6 +61,15 @@ class JarvisApp:
 
         threading.Thread(target=run, daemon=True).start()
 
+    def _on_settings_saved(self):
+        self.logger.info("Settings saved. Updating runtime components...")
+        # Update components with new config
+        self.detector.settings = self.config.clap_settings
+        self.detector.threshold = self.config.clap_settings.get('threshold', 0.2)
+        self.detector.min_interval = self.config.clap_settings.get('min_interval', 0.2)
+
+        self.audio.enabled = self.config.audio_settings.get('enabled', True)
+
     def create_tray_icon(self):
         if not pystray or self.args.no_tray:
             return None
@@ -79,8 +89,15 @@ class JarvisApp:
         def on_trigger(icon, item):
             self.on_trigger_routine()
 
+        def on_settings(icon, item):
+            self.logger.info("Opening settings UI...")
+            ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved)
+            # Need to run UI in a thread because we are in the tray thread
+            threading.Thread(target=ui.open, daemon=True).start()
+
         menu = pystray.Menu(
             pystray.MenuItem(f"Trigger {self.args.routine}", on_trigger),
+            pystray.MenuItem("Settings", on_settings),
             pystray.MenuItem("Quit", on_quit)
         )
         return pystray.Icon("JarvisLauncher", create_image(), "Jarvis Launcher", menu=menu)

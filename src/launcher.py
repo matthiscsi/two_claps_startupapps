@@ -3,6 +3,7 @@ import subprocess
 import time
 import logging
 import os
+import psutil
 from screeninfo import get_monitors
 
 try:
@@ -85,7 +86,29 @@ class Launcher:
             subprocess.Popen(path, shell=True)
 
     def is_app_running(self, name):
-        return self.find_window_robustly(name) is not None
+        # 1. Try robust window detection
+        if self.find_window_robustly(name) is not None:
+            return True
+
+        # 2. Fallback to process-based detection (Windows)
+        logger.info(f"Window for {name} not found. Checking processes...")
+        name_lower = name.lower()
+        try:
+            for proc in psutil.process_iter(['name', 'exe']):
+                proc_name = proc.info['name']
+                if proc_name and name_lower in proc_name.lower():
+                    logger.info(f"Found process matching {name}: {proc_name}")
+                    return True
+
+                # Check exe path for cases like Spotify.exe
+                exe_path = proc.info['exe']
+                if exe_path and name_lower in exe_path.lower():
+                    logger.info(f"Found process exe matching {name}: {exe_path}")
+                    return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+        return False
 
     def find_window_robustly(self, name):
         if win32gui is None: return None

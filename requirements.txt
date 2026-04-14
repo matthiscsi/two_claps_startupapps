@@ -10,3 +10,4 @@ pytest
 pyinstaller
 pystray
 Pillow
+psutil
