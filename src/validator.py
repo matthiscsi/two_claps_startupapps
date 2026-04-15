@@ -100,3 +100,13 @@ def _validate_audio_settings(settings):
         return
     if not isinstance(settings, dict):
         raise ConfigValidationError("audio_settings must be a dictionary.")
+
+    valid_modes = ["tts", "file"]
+    mode = settings.get("mode", "tts")
+    if mode not in valid_modes:
+        raise ConfigValidationError(f"audio_settings.mode must be one of: {', '.join(valid_modes)}")
+
+    if mode == "file":
+        file_path = settings.get("file_path")
+        if not file_path:
+            logger.warning("Audio mode is 'file' but no file_path is provided.")

@@ -108,7 +108,7 @@ class Launcher:
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=True)
             elif item_type == "app":
-                self.launch_app(target)
+                self.launch_app(target, item.get("args"))
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=False)
             elif item_type == "shortcut":
@@ -155,7 +155,8 @@ class Launcher:
 
         return primary_idx
 
-    def launch_app(self, path):
+    def launch_app(self, path, args=None):
+        logger.info(f"Launching app '{path}' with args '{args}'")
         if path.lower() == "discord":
             local_app_data = os.environ.get("LOCALAPPDATA")
             if local_app_data:
@@ -167,7 +168,10 @@ class Launcher:
         elif path.lower() == "spotify":
             subprocess.Popen(["start", "spotify"], shell=True)
         else:
-            subprocess.Popen(path, shell=True)
+            cmd = path
+            if args:
+                cmd = f'"{path}" {args}'
+            subprocess.Popen(cmd, shell=True)
 
     def is_app_running(self, name, window_title_match=None):
         # 1. Try robust window detection

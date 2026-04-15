@@ -1,5 +1,6 @@
 import time
 import io
+import os
 import logging
 import threading
 from gtts import gTTS
@@ -38,10 +39,48 @@ class AudioEngine:
         else:
             logger.info("TTS is disabled in configuration. Skipping initialization.")
 
+    def play_file(self, file_path, block=False):
+        if not self.enabled or not file_path:
+            logger.info(f"Audio File (Disabled/No Path): {file_path}")
+            return
+
+        if not os.path.exists(file_path):
+            logger.error(f"Audio file not found: {file_path}")
+            return
+
+        def _perform_play():
+            if not self._lock.acquire(blocking=False):
+                logger.warning("Jarvis is already playing audio. Ignoring.")
+                return
+            try:
+                logger.info(f"Playing file: {file_path}")
+                pygame.mixer.music.load(file_path)
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.1)
+                logger.info(f"Finished playing file: {file_path}")
+            except Exception as e:
+                logger.error(f"Error playing audio file {file_path}: {e}")
+            finally:
+                self._lock.release()
+
+        t = threading.Thread(target=_perform_play)
+        t.daemon = True
+        t.start()
+
+        if block:
+            t.join(timeout=30)
+
     def speak(self, text, block=False):
         if not self.enabled or not text:
             logger.info(f"TTS (Disabled/No Text): {text}")
             return
+
+        if self.config.audio_settings.get("mode") == "file":
+            file_path = self.config.audio_settings.get("file_path")
+            if file_path:
+                self.play_file(file_path, block=block)
+                return
 
         def _perform_speak():
             if not self._lock.acquire(blocking=False):

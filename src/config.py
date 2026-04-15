@@ -57,6 +57,8 @@ DEFAULT_CONFIG = {
     },
     "audio_settings": {
         "enabled": False,
+        "mode": "tts",  # "tts" or "file"
+        "file_path": "",
         "startup_phrase": "Good morning, Boss. Initializing systems.",
         "success_phrase": "Systems online. Have a productive day."
     },
