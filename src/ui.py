@@ -9,6 +9,7 @@ from screeninfo import get_monitors
 from src.config import get_resource_path
 from src.startup_helper import is_startup_enabled, set_startup
 from src.logger import get_log_dir
+from src.audio_lock import PYAUDIO_LOCK
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +32,10 @@ class SettingsUI:
     def open(self):
         if SettingsUI._instance:
             try:
-                SettingsUI._instance.deiconify()
-                SettingsUI._instance.lift()
-                SettingsUI._instance.focus_force()
+                # Use after() to ensure UI updates happen on the main thread safely
+                SettingsUI._instance.after(0, lambda: SettingsUI._instance.deiconify())
+                SettingsUI._instance.after(10, lambda: SettingsUI._instance.lift())
+                SettingsUI._instance.after(20, lambda: SettingsUI._instance.focus_force())
             except:
                 SettingsUI._instance = None
             if SettingsUI._instance:
@@ -104,10 +106,11 @@ class SettingsUI:
         # Device Selection (Simplified)
         if pyaudio:
             try:
-                p = pyaudio.PyAudio()
-                dev = p.get_default_input_device_info()
-                dev_name = dev.get('name', 'Default')
-                p.terminate()
+                with PYAUDIO_LOCK:
+                    p = pyaudio.PyAudio()
+                    dev = p.get_default_input_device_info()
+                    dev_name = dev.get('name', 'Default')
+                    p.terminate()
                 device_text = f"Mic: {dev_name}"
             except:
                 device_text = "Mic: Default system microphone"
@@ -530,6 +533,14 @@ class SettingsUI:
             return
 
         try:
+            # Check if detector has a valid stream/is active
+            if not getattr(self.detector, 'stream', None):
+                self.state_label.config(text="INACTIVE", foreground="gray")
+                self.meter_canvas.delete("all")
+                if self._monitoring:
+                    self.root.after(500, self._update_meter)
+                return
+
             peak = getattr(self.detector, 'last_peak', 0.0)
             threshold = self.threshold_var.get()
             state = getattr(self.detector, 'state', 'IDLE')
