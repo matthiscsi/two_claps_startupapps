@@ -267,31 +267,55 @@ class Launcher:
             monitor_idx = 0
         target_monitor = self.monitors[monitor_idx]
 
-        logger.info(f"Applying position '{position}' to hwnd {hwnd} on monitor {monitor_idx} ({target_monitor.width}x{target_monitor.height} @ {target_monitor.x},{target_monitor.y})")
+        logger.info(f"Applying position '{position}' to hwnd {hwnd} on monitor {monitor_idx}")
         try:
+            if win32gui is None:
+                logger.info(f"[NON-WINDOWS] Skipping position apply for {hwnd}")
+                return
+
             # Restore if minimized
-            if win32gui and win32gui.IsIconic(hwnd):
+            if win32gui.IsIconic(hwnd):
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
-            x, y = target_monitor.x, target_monitor.y
-            width, height = target_monitor.width, target_monitor.height
+            # Get Work Area (excluding taskbar)
+            try:
+                import win32api
+                # Find monitor handle from monitor index/coordinates
+                # In our case, self.monitors is from screeninfo, which doesn't give hMonitor
+                # We can use MonitorFromPoint
+                h_monitor = win32api.MonitorFromPoint((target_monitor.x, target_monitor.y), win32con.MONITOR_DEFAULTTONEAREST)
+                monitor_info = win32api.GetMonitorInfo(h_monitor)
+                work_area = monitor_info["Work"]
+                wx, wy, wr, wb = work_area
+                ww = wr - wx
+                wh = wb - wy
+            except Exception as e:
+                logger.warning(f"Failed to get work area for monitor {monitor_idx}: {e}. Falling back to full bounds.")
+                wx, wy = target_monitor.x, target_monitor.y
+                ww, wh = target_monitor.width, target_monitor.height
 
+            if position == "full":
+                # Use native maximization after moving to target monitor
+                # First, move it to the work area so it knows which monitor to maximize on
+                win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, wx, wy, ww, wh, win32con.SWP_SHOWWINDOW)
+                win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+                logger.info(f"Window {hwnd} maximized on monitor {monitor_idx}")
+                return
+
+            # Partial positioning using work area
+            x, y, width, height = wx, wy, ww, wh
             if position == "left":
-                width = width // 2
+                width = ww // 2
             elif position == "right":
-                x = x + (width // 2)
-                width = width // 2
+                x = wx + (ww // 2)
+                width = ww // 2
             elif position == "top":
-                height = height // 2
+                height = wh // 2
             elif position == "bottom":
-                y = y + (height // 2)
-                height = height // 2
+                y = wy + (wh // 2)
+                height = wh // 2
 
-            if win32gui:
-                # Use SetWindowPos for reliability
-                win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_SHOWWINDOW)
-                logger.info(f"Window {hwnd} positioned successfully at {x},{y} ({width}x{height})")
-            else:
-                logger.info(f"[NON-WINDOWS] Would position window {hwnd} at {x},{y} ({width}x{height})")
+            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_SHOWWINDOW)
+            logger.info(f"Window {hwnd} positioned successfully at {x},{y} ({width}x{height})")
         except Exception as e:
             logger.error(f"Error positioning window {hwnd}: {e}")

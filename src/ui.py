@@ -6,6 +6,7 @@ import sys
 import os
 import re
 from screeninfo import get_monitors
+from src.config import get_resource_path
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ class SettingsUI:
     def open(self):
         if SettingsUI._instance:
             try:
+                SettingsUI._instance.deiconify()
                 SettingsUI._instance.lift()
+                SettingsUI._instance.focus_force()
             except:
                 SettingsUI._instance = None
             if SettingsUI._instance:
@@ -39,6 +42,12 @@ class SettingsUI:
             self.root = tk.Tk()
             SettingsUI._instance = self.root
             self.root.title("Jarvis Launcher Settings")
+            icon_path = get_resource_path(os.path.join("assets", "icon.ico"))
+            if os.path.exists(icon_path):
+                try:
+                    self.root.iconbitmap(icon_path)
+                except:
+                    pass
             self.root.geometry("600x500")
 
             # Ensure instance is cleared when window is closed
@@ -50,7 +59,7 @@ class SettingsUI:
             self.root.protocol("WM_DELETE_WINDOW", on_closing)
 
             self.notebook = ttk.Notebook(self.root)
-            self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
+            self.notebook.pack(expand=True, fill='both', padx=15, pady=15)
 
             self._create_general_tab()
             self._create_routines_tab()
@@ -342,11 +351,11 @@ class SettingsUI:
 
         ttk.Button(icon_frame, text="...", width=3, command=browse_icon).pack(side='right', padx=2)
 
-        ttk.Label(dialog, text="Delay (s):").grid(row=6, column=0, padx=5, pady=5, sticky='e')
+        ttk.Label(dialog, text="Delay before launch (s):").grid(row=6, column=0, padx=5, pady=5, sticky='e')
         delay_var = tk.DoubleVar(value=old_item.get('delay', 0.0))
         ttk.Entry(dialog, textvariable=delay_var).grid(row=6, column=1, padx=5, pady=5, sticky='ew')
 
-        ttk.Label(dialog, text="Arguments:").grid(row=7, column=0, padx=5, pady=5, sticky='e')
+        ttk.Label(dialog, text="CLI Arguments (optional):").grid(row=7, column=0, padx=5, pady=5, sticky='e')
         args_var = tk.StringVar(value=old_item.get('args', ''))
         ttk.Entry(dialog, textvariable=args_var).grid(row=7, column=1, padx=5, pady=5, sticky='ew')
 
