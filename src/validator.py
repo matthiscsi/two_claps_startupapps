@@ -86,7 +86,7 @@ def _validate_item(item, context):
 
     # Position validation
     position = item.get("position", "full")
-    valid_positions = ["full", "left", "right"]
+    valid_positions = ["full", "left", "right", "top", "bottom"]
     if position not in valid_positions:
         raise ConfigValidationError(f"Item '{name}' has invalid position '{position}'. Valid positions are: {', '.join(valid_positions)}")
 

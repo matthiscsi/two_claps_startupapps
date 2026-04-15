@@ -119,7 +119,7 @@ class SettingsUI:
         audio_frame = ttk.LabelFrame(tab, text="Audio / TTS")
         audio_frame.pack(fill='x', padx=10, pady=5)
 
-        self.audio_enabled_var = tk.BooleanVar(value=self.config_manager.audio_settings.get('enabled', True))
+        self.audio_enabled_var = tk.BooleanVar(value=self.config_manager.audio_settings.get('enabled', False))
         ttk.Checkbutton(audio_frame, text="Enable Jarvis Feedback", variable=self.audio_enabled_var).pack(anchor='w', padx=5, pady=5)
 
         self.startup_phrase_var = tk.StringVar(value=self.config_manager.audio_settings.get('startup_phrase', ''))
@@ -208,19 +208,26 @@ class SettingsUI:
         type_combo.bind("<<ComboboxSelected>>", on_type_change)
 
         ttk.Label(dialog, text="Monitor:").grid(row=3, column=0, padx=5, pady=5, sticky='e')
-        monitor_var = tk.StringVar(value="primary")
-        try:
-            monitors = get_monitors()
-            monitor_values = ["primary", "secondary"] + [str(i) for i in range(len(monitors))]
-        except:
-            monitor_values = ["primary", "secondary", "0"]
 
-        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_values)
+        from src.launcher import Launcher
+        monitor_options = Launcher.get_monitor_options()
+
+        monitor_var = tk.StringVar()
+        # Find default selection
+        default_monitor = "primary"
+        selected_option = monitor_options[0]
+        for opt in monitor_options:
+            if "(Primary)" in opt:
+                selected_option = opt
+                break
+
+        monitor_var.set(selected_option)
+        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_options, state="readonly")
         monitor_combo.grid(row=3, column=1, padx=5, pady=5, sticky='ew')
 
         ttk.Label(dialog, text="Position:").grid(row=4, column=0, padx=5, pady=5, sticky='e')
         pos_var = tk.StringVar(value="full")
-        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right"], state="readonly").grid(row=4, column=1, padx=5, pady=5, sticky='ew')
+        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right", "top", "bottom"], state="readonly").grid(row=4, column=1, padx=5, pady=5, sticky='ew')
 
         ttk.Label(dialog, text="Icon Path:").grid(row=5, column=0, padx=5, pady=5, sticky='e')
         icon_frame = ttk.Frame(dialog)
@@ -263,12 +270,20 @@ class SettingsUI:
                     if not messagebox.askyesno("Warning", f"Path '{target}' does not seem to exist. Save anyway?"):
                         return
 
-            # Try to convert monitor to int if it looks like one
+            # Extract monitor index from label (e.g. "Monitor 0: ...")
             monitor_val = monitor_var.get()
-            try:
-                monitor_val = int(monitor_val)
-            except ValueError:
-                pass
+            if monitor_val.startswith("Monitor "):
+                try:
+                    # Extracts '0' from 'Monitor 0: ...'
+                    monitor_val = int(monitor_val.split(":")[0].split(" ")[1])
+                except (IndexError, ValueError):
+                    monitor_val = 0
+            else:
+                # Fallback for primary/secondary strings if they somehow remain
+                try:
+                    monitor_val = int(monitor_val)
+                except ValueError:
+                    pass
 
             new_item = {
                 "name": name,
