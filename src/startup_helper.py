@@ -60,21 +60,26 @@ def get_startup_command():
         root_dir = os.getcwd()
         return f'"{python_exe}" -m src.main --minimized'
 
-def is_startup_enabled():
-    """Checks if the app is registered in the Windows startup registry."""
+def is_startup_enabled(return_command=False):
+    """
+    Checks if the app is registered in the Windows startup registry.
+    If return_command is True, returns (is_enabled, command_string).
+    """
     if sys.platform != "win32" or winreg is None:
-        return False
+        return (False, None) if return_command else False
 
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_READ) as key:
             try:
                 value, _ = winreg.QueryValueEx(key, APP_NAME)
-                return True
+                logger.info(f"Startup registry found: {value}")
+                return (True, value) if return_command else True
             except (FileNotFoundError, OSError):
-                return False
+                logger.info("Startup registry entry not found.")
+                return (False, None) if return_command else False
     except Exception as e:
         logger.debug(f"Non-critical: Failed to check startup registry: {e}")
-        return False
+        return (False, None) if return_command else False
 
 def set_startup(enabled):
     """Adds or removes the app from the Windows startup registry."""
@@ -88,17 +93,19 @@ def set_startup(enabled):
     try:
         if enabled:
             cmd = get_startup_command()
+            logger.info(f"Attempting to enable startup with command: {cmd}")
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
-            logger.info(f"Enabled startup: {cmd}")
+            logger.info("SUCCESS: Startup registry entry created/updated.")
         else:
+            logger.info("Attempting to disable startup...")
             try:
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
                     try:
                         winreg.DeleteValue(key, APP_NAME)
-                        logger.info("Disabled startup.")
+                        logger.info("SUCCESS: Disabled startup (registry entry removed).")
                     except (FileNotFoundError, OSError):
-                        pass
+                        logger.info("Startup registry entry already absent.")
             except (FileNotFoundError, OSError):
                 # Key itself might not exist or be accessible
                 pass

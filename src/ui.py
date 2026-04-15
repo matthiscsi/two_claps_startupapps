@@ -234,7 +234,15 @@ class SettingsUI:
         system_frame.pack(fill='x', padx=10, pady=5)
 
         if sys.platform == "win32":
-            self.startup_var = tk.BooleanVar(value=is_startup_enabled())
+            actual_state = is_startup_enabled()
+            logger.info(f"Initializing startup checkbox. Actual system state: {actual_state}")
+            self.startup_var = tk.BooleanVar(value=actual_state)
+
+            def on_startup_toggle(*args):
+                logger.info(f"Startup checkbox toggled by user: {self.startup_var.get()}")
+
+            self.startup_var.trace_add("write", on_startup_toggle)
+
             ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(anchor='w', padx=5, pady=5)
 
         # Logs Folder
@@ -668,7 +676,13 @@ class SettingsUI:
 
             # Update startup setting
             if sys.platform == "win32" and hasattr(self, 'startup_var'):
-                set_startup(self.startup_var.get())
+                new_startup_state = self.startup_var.get()
+                logger.info(f"Saving startup setting: {new_startup_state}")
+                set_startup(new_startup_state)
+                # Also persist to config so we have a 'record of intent'
+                if 'system' not in self.config_manager.data:
+                    self.config_manager.data['system'] = {}
+                self.config_manager.data['system']['run_on_startup'] = new_startup_state
 
             self.config_manager.save()
             logger.info("Settings saved to config file.")
