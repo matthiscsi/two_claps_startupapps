@@ -70,6 +70,9 @@ Use `pythonw.exe` on Windows to run without a console window:
 ```bash
 start /b pythonw -m src.main
 ```
+Or manually:
+1. Press `Win + R`, type `shell:startup`, and hit Enter.
+2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file) in this folder.
 
 ### Run on Boot
 Run the included startup helper:
