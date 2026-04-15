@@ -102,14 +102,7 @@ class JarvisApp:
             self.on_trigger_routine()
 
         def on_settings(icon, item):
-            self.logger.info("Opening settings UI...")
-            # SettingsUI handles singleton internally via _instance
-            ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved, detector=self.detector)
-            # We run it in a thread to keep the tray responsive.
-            # Non-daemon so it doesn't get killed instantly, but on Windows
-            # we need to be careful with Tkinter and threads.
-            ui_thread = threading.Thread(target=ui.open)
-            ui_thread.start()
+            self.show_settings()
 
         menu = pystray.Menu(
             pystray.MenuItem(f"Trigger {self.args.routine}", on_trigger),
@@ -118,6 +111,16 @@ class JarvisApp:
             pystray.MenuItem("Quit", on_quit)
         )
         return pystray.Icon("JarvisLauncher", load_icon(), "Jarvis Launcher", menu=menu)
+
+    def show_settings(self):
+        self.logger.info("Opening settings UI...")
+        # SettingsUI handles singleton internally via _instance
+        ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved, detector=self.detector)
+        # We run it in a thread to keep the tray responsive.
+        # Non-daemon so it doesn't get killed instantly, but on Windows
+        # we need to be careful with Tkinter and threads.
+        ui_thread = threading.Thread(target=ui.open)
+        ui_thread.start()
 
     def shutdown(self):
         self.logger.info("Initiating graceful shutdown...")
@@ -138,6 +141,10 @@ class JarvisApp:
         self.tray_icon = self.create_tray_icon()
         if self.tray_icon:
             threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+        # If not minimized, show settings window immediately
+        if not self.args.minimized and not self.args.calibrate and not self.args.no_tray:
+            self.show_settings()
 
         def signal_handler(sig, frame):
             self.shutdown()
@@ -173,6 +180,7 @@ def parse_args():
     parser.add_argument("--no-audio", action="store_true", help="Disable audio/TTS")
     parser.add_argument("--calibrate", action="store_true", help="Calibration mode to check volume levels")
     parser.add_argument("--no-tray", action="store_true", help="Disable system tray icon")
+    parser.add_argument("--minimized", action="store_true", help="Start minimized to tray (don't show UI)")
     return parser.parse_args()
 
 if __name__ == "__main__":
