@@ -58,6 +58,10 @@ class Launcher:
 
         logger.info(f"--- Starting Routine: {routine_name} ---")
         items = routines[routine_name].get("items", [])
+
+        # Log the exact sequence
+        sequence = " -> ".join([item.get('name', 'Unknown') for item in items])
+        logger.info(f"Launch sequence: {sequence}")
         logger.info(f"Found {len(items)} items to launch.")
 
         for i, item in enumerate(items):
