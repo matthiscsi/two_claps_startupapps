@@ -34,22 +34,30 @@ class ClapDetector:
 
     def _initialize_audio(self):
         if pyaudio is None:
-            raise ImportError("PyAudio is not installed. Clap detection unavailable.")
-        self.p = pyaudio.PyAudio()
+            logger.error("PyAudio is not installed. Clap detection unavailable.")
+            return False
 
         try:
-            device_info = self.p.get_default_input_device_info()
-            logger.info(f"Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
-        except Exception as e:
-            logger.warning(f"Could not retrieve default input device info: {e}")
+            self.p = pyaudio.PyAudio()
 
-        self.stream = self.p.open(
-            format=pyaudio.paFloat32,
-            channels=1,
-            rate=self.sampling_rate,
-            input=True,
-            frames_per_buffer=self.frame_size,
-        )
+            try:
+                device_info = self.p.get_default_input_device_info()
+                logger.info(f"Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
+            except Exception as e:
+                logger.warning(f"Could not retrieve default input device info: {e}")
+
+            self.stream = self.p.open(
+                format=pyaudio.paFloat32,
+                channels=1,
+                rate=self.sampling_rate,
+                input=True,
+                frames_per_buffer=self.frame_size,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize audio input for clap detection: {e}")
+            self._cleanup_audio()
+            return False
 
     def _cleanup_audio(self):
         if self.stream:
@@ -60,7 +68,9 @@ class ClapDetector:
 
     def calibrate(self, stop_event=None):
         """Calibration mode to check volume levels."""
-        self._initialize_audio()
+        if not self._initialize_audio():
+            logger.error("Could not start calibration due to audio initialization failure.")
+            return
         logger.info("Calibration started. Peak levels will be printed. Press Ctrl+C to stop.")
         try:
             while stop_event is None or not stop_event.is_set():
@@ -92,7 +102,13 @@ class ClapDetector:
         Calls callback() when detected.
         If callback returns True, it stops listening.
         """
-        self._initialize_audio()
+        if not self._initialize_audio():
+            logger.error("Clap detection could not start: Audio initialization failed.")
+            # Wait for stop event even if audio fails to prevent tight loop or instant exit
+            if stop_event:
+                while not stop_event.is_set():
+                    time.sleep(1)
+            return
 
         self.clap_count = 0
         last_peak_time = -float("inf")

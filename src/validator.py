@@ -1,5 +1,6 @@
 import logging
 import re
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -110,3 +111,5 @@ def _validate_audio_settings(settings):
         file_path = settings.get("file_path")
         if not file_path:
             logger.warning("Audio mode is 'file' but no file_path is provided.")
+        elif not os.path.exists(file_path):
+            logger.warning(f"Audio file not found: {file_path}")
