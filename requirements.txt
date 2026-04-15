@@ -1,13 +1,5 @@
-numpy
-pyaudio
-scipy
-screeninfo
-pywin32
-pyyaml
-gTTS
-pygame
+-r requirements-core.txt
 pytest
 pyinstaller
-pystray
-Pillow
-psutil
+# pywin32 # Only on Windows
+# pyaudio # Required for detector, but can be tricky in CI

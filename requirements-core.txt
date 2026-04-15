@@ -1,5 +1,11 @@
-# Core dependencies for two-claps-open
+# Core dependencies for the Jarvis Launcher
 numpy
-pyaudio
 scipy
-pywin32
+screeninfo
+pyyaml
+gTTS
+pygame
+pystray
+Pillow
+psutil
+# pywin32 # Only on Windows

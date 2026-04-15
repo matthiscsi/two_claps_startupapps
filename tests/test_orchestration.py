@@ -7,10 +7,12 @@ from src.launcher import Launcher
 def mock_config():
     config = MagicMock(spec=Config)
     config.routines = {
-        "test_routine": [
-            {"name": "App1", "type": "app", "path": "path1", "monitor": 0, "delay": 0},
-            {"name": "URL1", "type": "url", "path": "http://test.com", "monitor": 1, "delay": 0}
-        ]
+        "test_routine": {
+            "items": [
+                {"name": "App1", "type": "app", "target": "path1", "monitor": 0, "delay": 0},
+                {"name": "URL1", "type": "url", "target": "http://test.com", "monitor": 1, "delay": 0}
+            ]
+        }
     }
     return config
 
@@ -36,6 +38,6 @@ def test_smart_launching(mock_config):
 
         with patch.object(launcher, 'is_app_running', return_value=True) as mock_running:
             with patch.object(launcher, 'position_window') as mock_pos:
-                launcher.launch_item({"name": "TestApp", "type": "app", "path": "path", "monitor": 0})
+                launcher.launch_item({"name": "TestApp", "type": "app", "target": "path", "monitor": 0})
                 mock_pos.assert_called_once()
                 # Should not call launch_app if running
