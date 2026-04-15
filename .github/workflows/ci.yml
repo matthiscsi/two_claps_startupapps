@@ -24,5 +24,7 @@ jobs:
         pip install pyyaml psutil pytest screeninfo numpy scipy gTTS pygame pystray Pillow
 
     - name: Run tests
+      env:
+        PYTHONPATH: .
       run: |
-        PYTHONPATH=. pytest tests/
+        python -m pytest tests/

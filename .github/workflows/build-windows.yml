@@ -27,8 +27,10 @@ jobs:
         pip install pywin32 pyaudio
 
     - name: Run tests
+      env:
+        PYTHONPATH: .
       run: |
-        PYTHONPATH=. pytest tests/
+        python -m pytest tests/
 
     - name: Build with PyInstaller
       run: |
