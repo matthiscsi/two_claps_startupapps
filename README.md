@@ -1,95 +1,119 @@
 # 👏 Jarvis Double-Clap Launcher
 
-A polished Windows background utility that triggers a "morning routine" upon detecting two claps. Inspired by Tony Stark's Jarvis, it opens your essential apps, positions them across your monitors, and greets you with a wake-up message.
+A polished Windows background utility that triggers a configurable startup routine upon detecting two claps. Optimized for productivity, it launches your essential apps, websites, and shortcuts, and positions them across your monitors exactly how you like them.
 
-## Features
+## 🚀 Key Features
 
-- **Reliable Clap Detection**: Optimized frequency-based detection.
-- **Configurable Routines**: Define apps, URLs, and target monitors in a simple YAML file.
-- **Window Management**: Best-effort positioning of Discord, Spotify, and browser windows.
-- **Jarvis Feedback**: Optional TTS (Text-to-Speech) for a premium feel.
-- **System Tray**: Runs quietly in the background with a tray icon for manual control and settings.
-- **Configuration UI**: Easily configure clap sensitivity, audio settings, and routine items via a graphical interface.
-- **Smart Launching**: Detects if apps are already running (via window or process fallback) and just repositions them.
-- **Screen Splitting**: Support for "left" or "right" half positioning in routines.
-- **Calibration Mode**: Visual feedback to help you tune microphone sensitivity.
-- **Portable**: Can be bundled into a single `.exe` for easy use.
+- **Reliable Clap Detection**: Optimized frequency-based detection (1.4kHz-1.8kHz) to minimize false positives.
+- **Configurable Startup Routines**: Define multiple routines (e.g., "morning", "work", "gaming") with apps, URLs, and shortcuts.
+- **Multi-Monitor Support**: Target specific monitors by index or using friendly aliases like `primary` and `secondary`.
+- **Flexible Positioning**: Best-effort window placement with support for `full` screen, `left`, or `right` half splitting.
+- **Smart Launching**: Detects if an app is already running and repositions it instead of launching a new instance.
+- **Robust Validation**: Fail-fast configuration loading with clear, actionable error messages.
+- **System Tray Integration**: Runs quietly in the background with manual trigger and settings access.
+- **Jarvis Feedback**: Optional Text-to-Speech (TTS) greetings and status updates.
 
-## Quick Start (Bundled Version)
+## 🛠️ Configuration (`config.yaml`)
 
-1. Download the latest `JarvisLauncher.exe` from releases.
-2. Run it once to generate the default `config.yaml`.
-3. Edit `config.yaml` to match your monitor setup and app paths.
-4. Restart the app. Clap twice. Enjoy.
+The launcher is powered by a `config.yaml` file. You can edit it manually or via the **Settings** menu in the system tray.
 
-## Configuration
-
-You can configure the launcher directly through the system tray:
-1. Right-click the Jarvis icon in the system tray.
-2. Select **Settings**.
-3. Adjust clap sensitivity, audio settings, or add/remove apps and URLs from your morning routine.
-
-All changes are saved automatically to `config.yaml` and applied immediately.
-
-### Manual Configuration (`config.yaml`)
+### Example Configuration
 
 ```yaml
 routines:
   morning_routine:
-    - name: "HLN News"
-      type: "url"
-      path: "https://www.hln.be/"
-      monitor: 0  # 0 is main, 1 is secondary
-    - name: "Discord"
-      type: "app"
-      path: "discord"
-      monitor: 1
-      delay: 2
+    items:
+      - name: "Browser"
+        type: "url"
+        target: "https://news.google.com"
+        monitor: "primary"
+        position: "full"
+      - name: "Slack"
+        type: "app"
+        target: "C:/Users/User/AppData/Local/slack/slack.exe"
+        monitor: "secondary"
+        position: "left"
+      - name: "Spotify"
+        type: "app"
+        target: "spotify"
+        monitor: "secondary"
+        position: "right"
+        delay: 2
 ```
 
-## Setup (Development Mode)
+### Routine Item Options
 
-1. **Install Python 3.10+**
-2. **Install Dependencies**:
+| Field | Description | Required |
+|-------|-------------|----------|
+| `name` | Friendly name of the item. Used for window matching. | Yes |
+| `type` | `app`, `url`, or `shortcut`. | Yes |
+| `target`| Path to executable, URL, or .lnk file. | Yes |
+| `monitor`| Monitor index (0, 1) or `primary`/`secondary`. Default: 0 | No |
+| `position`| `full`, `left`, or `right`. Default: `full` | No |
+| `delay` | Seconds to wait before launching/positioning. Default: 0 | No |
+| `window_title_match` | Optional substring to match the window title if `name` is insufficient. | No |
+
+## 💻 Setup & Usage
+
+### Prerequisites
+- Windows OS (recommended for window management features)
+- Python 3.10+ (if running from source)
+
+### Installation
+1. Clone the repository.
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. **Run**:
+3. Run the application:
    ```bash
    python -m src.main
    ```
-   Use `--dry-run` to test your routine without actually opening anything.
-   Use `--calibrate` to check your microphone levels.
 
-## Background Usage & Startup on Boot
+### Command Line Arguments
+- `--dry-run`: Log actions without actually launching or moving windows.
+- `--calibrate`: Enter calibration mode to tune microphone sensitivity.
+- `--no-audio`: Disable TTS feedback.
+- `--routine <name>`: Specify which routine to run on claps (default: `morning_routine`).
 
-The app automatically starts in the system tray.
+## 📦 Building the Executable
 
-### Manual Background Run (No Console)
-Use `pythonw.exe` on Windows to run without a console window:
+To bundle Jarvis Launcher into a standalone Windows `.exe`:
 ```bash
-start /b pythonw -m src.main
+python build_exe.py
 ```
-Or manually:
-1. Press `Win + R`, type `shell:startup`, and hit Enter.
-2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file) in this folder.
+The output will be in the `dist/` directory.
 
-### Run on Boot
-Run the included startup helper:
-```bash
-python src/startup_helper.py
-```
-Or manually:
-1. Press `Win + R`, type `shell:startup`, and hit Enter.
-2. Create a shortcut to `JarvisLauncher.exe` (or a `.bat` file) in this folder.
+## 🤖 CI / Build Pipeline
 
-## Troubleshooting
+This repository uses GitHub Actions for continuous integration and automated builds:
 
-- **Sensitivity**: Adjust `threshold` and `min_interval` in `config.yaml` if claps aren't detected or there are false positives.
-- **Window Positioning**: Some apps (like Discord) take time to load. Increase the `delay` in `config.yaml` to ensure the window is ready before the launcher tries to move it.
-- **Audio**: Ensure your default playback device is set correctly for TTS feedback.
+- **CI (`ci.yml`)**: Runs automatically on every push or pull request to `main`. It installs dependencies and runs the automated test suite to ensure code quality.
+- **Build Windows Executable (`build-windows.yml`)**: Runs on every push to `main` and can be triggered manually via the **Actions** tab. It produces a standalone `JarvisLauncher.exe`.
 
-## Limitations
+### How to download the latest build:
+1. Go to the **Actions** tab in this repository.
+2. Select the **Build Windows Executable** workflow.
+3. Click on the most recent successful run.
+4. Scroll down to **Artifacts** and download `JarvisLauncher-Windows`.
 
-- Precise window placement for browsers can be tricky if multiple windows are open.
-- App "names" in config should match the window title (or a part of it) for reliable positioning.
+## 🚀 Releases
+
+To create a new formal release:
+1. Tag your commit: `git tag v0.1.0`
+2. Push the tag: `git push origin v0.1.0`
+
+The GitHub Actions pipeline will automatically:
+- Run the full test suite.
+- Build the standalone `JarvisLauncher.exe`.
+- Create a new GitHub Release with the executable attached as an asset.
+
+## ⚠️ Troubleshooting & Limitations
+
+- **Window Matching**: Some apps take a few seconds to initialize their windows. Use the `delay` field if an app launches but fails to reposition.
+- **Permissions**: Some apps may require Administrator privileges to be repositioned if they were launched as Admin.
+- **Browsers**: URLs are opened in your default browser. Matching specific browser tabs can be hit-or-miss depending on how the browser handles window titles.
+
+## 🧪 Experimental Features
+
+Legacy features like the AI voice assistant have been moved to the `experimental/` directory and are not part of the core product.

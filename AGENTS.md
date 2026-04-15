@@ -6,6 +6,7 @@ This document explains the structure and conventions of the Jarvis Double-Clap L
 
 - `src/`: Core source code.
   - `main.py`: Entry point. Handles CLI args and orchestrates the system.
+- `experimental/`: Legacy or experimental features (e.g., AI assistant).
   - `config.py`: Configuration management (YAML).
   - `detector.py`: Clap detection logic using PyAudio and SciPy.
   - `launcher.py`: Routine execution and window management.

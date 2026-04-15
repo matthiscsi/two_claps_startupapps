@@ -1,0 +1,13 @@
+routines:
+  morning:
+    items:
+      - name: "Browser"
+        type: "url"
+        target: "https://google.com"
+        monitor: "primary"
+        position: "full"
+      - name: "Editor"
+        type: "app"
+        target: "notepad.exe"
+        monitor: "primary"
+        position: "left"
