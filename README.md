@@ -6,8 +6,9 @@ A polished Windows background utility that triggers a configurable startup routi
 
 - **Reliable Clap Detection**: Optimized frequency-based detection (1.4kHz-1.8kHz) to minimize false positives.
 - **Configurable Startup Routines**: Define multiple routines (e.g., "morning", "work", "gaming") with apps, URLs, and shortcuts.
+- **Visual Routine Management**: Easily add, edit, or reorder routine items using a drag-and-drop interface in the Settings UI.
 - **Multi-Monitor Support**: Target specific monitors by index or using friendly aliases like `primary` and `secondary`.
-- **Flexible Positioning**: Best-effort window placement with support for `full` screen, `left`, or `right` half splitting.
+- **Flexible Positioning**: Best-effort window placement with support for `full` screen, `left`, `right`, `top`, or `bottom` splitting.
 - **Smart Launching**: Detects if an app is already running and repositions it instead of launching a new instance.
 - **Robust Validation**: Fail-fast configuration loading with clear, actionable error messages.
 - **System Tray Integration**: Runs quietly in the background with manual trigger and settings access.
@@ -15,7 +16,7 @@ A polished Windows background utility that triggers a configurable startup routi
 
 ## 🛠️ Configuration (`config.yaml`)
 
-The launcher is powered by a `config.yaml` file. You can edit it manually or via the **Settings** menu in the system tray.
+The launcher is powered by a `config.yaml` file. You can manage your routines and settings via the **Settings** menu in the system tray, which provides a visual interface for all options including drag-and-drop reordering of startup items.
 
 ### Example Configuration
 

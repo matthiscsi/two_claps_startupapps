@@ -263,7 +263,7 @@ class SettingsUI:
         self.routine_tree.bind("<ButtonRelease-1>", self._on_tree_release)
         self.routine_tree.bind("<Motion>", self._on_tree_motion)
         self.routine_tree.bind("<Leave>", lambda e: self.routine_tree.config(cursor=""))
-        self._drag_data = {"item": None}
+        self._drag_data = {"item": None, "dragged": False}
 
         # Track which routine is currently selected for editing
         self.current_routine_name = "morning_routine"
@@ -277,6 +277,11 @@ class SettingsUI:
         ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side='left', padx=5)
 
     def _refresh_routine_list(self):
+        # Store current selection to restore it after refresh
+        selected_indices = []
+        for item_id in self.routine_tree.selection():
+            selected_indices.append(self.routine_tree.index(item_id))
+
         for item in self.routine_tree.get_children():
             self.routine_tree.delete(item)
 
@@ -285,13 +290,16 @@ class SettingsUI:
         for i, item in enumerate(items):
             # Use name and index as a unique tag to avoid issues with duplicate names
             tag = f"{item.get('name')}||{i}"
-            self.routine_tree.insert('', 'end', values=(
+            item_id = self.routine_tree.insert('', 'end', values=(
                 "☰",
                 item.get('type'),
                 item.get('target'),
                 item.get('monitor'),
                 item.get('position')
             ), tags=(tag,))
+
+            if i in selected_indices:
+                self.routine_tree.selection_add(item_id)
 
     def _edit_routine_item(self):
         selected = self.routine_tree.selection()
@@ -539,6 +547,7 @@ class SettingsUI:
         # Only allow dragging from the 'Handle' column (#1)
         if item and column == '#1':
             self._drag_data["item"] = item
+            self._drag_data["dragged"] = False
             # Add visual feedback
             self.routine_tree.item(item, tags=self.routine_tree.item(item, "tags") + ("dragging",))
 
@@ -546,6 +555,7 @@ class SettingsUI:
         if not self._drag_data["item"]:
             return
 
+        self._drag_data["dragged"] = True
         target = self.routine_tree.identify_row(event.y)
         if target and target != self._drag_data["item"]:
             self.routine_tree.move(self._drag_data["item"], '', self.routine_tree.index(target))
@@ -558,14 +568,21 @@ class SettingsUI:
             self.routine_tree.config(cursor="")
 
     def _on_tree_release(self, event):
-        if self._drag_data["item"]:
+        item = self._drag_data.get("item")
+        dragged = self._drag_data.get("dragged")
+
+        if item:
             # Remove visual feedback
-            tags = list(self.routine_tree.item(self._drag_data["item"], "tags"))
+            tags = list(self.routine_tree.item(item, "tags"))
             if "dragging" in tags:
                 tags.remove("dragging")
-            self.routine_tree.item(self._drag_data["item"], tags=tuple(tags))
+            self.routine_tree.item(item, tags=tuple(tags))
 
         self._drag_data["item"] = None
+        self._drag_data["dragged"] = False
+
+        if not dragged:
+            return
 
         # Persist the new order to the config manager immediately
         new_items = []
@@ -593,7 +610,7 @@ class SettingsUI:
                 if idx < len(old_items):
                     new_items.append(old_items[idx])
             except (ValueError, IndexError):
-                logger.warning(f"Could not parse tag during reorder: {tag}")
+                logger.warning(f"Could not parse tag during reorder: {id_tag}")
 
         if new_items or not self.routine_tree.get_children():
             logger.info(f"Updating routine '{self.current_routine_name}' order.")
