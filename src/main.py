@@ -24,6 +24,14 @@ class JarvisApp:
     def __init__(self, args):
         self.args = args
 
+        # Set AppUserModelID for proper taskbar grouping on Windows
+        if sys.platform == "win32":
+            try:
+                myappid = "com.jarvis.launcher.v1"
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            except Exception as e:
+                print(f"Could not set AppUserModelID: {e}")
+
         # Don't use get_resource_path for the config file if we want it to be user-editable.
         # But for the default, it's fine.
         # Better: use the provided path directly, which defaults to config.yaml in current dir.
@@ -76,12 +84,14 @@ class JarvisApp:
         if not pystray or self.args.no_tray:
             return None
 
-        def create_image():
-            width = 64
-            height = 64
-            image = Image.new('RGB', (width, height), (0, 0, 0))
+        def load_icon():
+            icon_path = get_resource_path(os.path.join("assets", "icon.png"))
+            if os.path.exists(icon_path):
+                return Image.open(icon_path)
+            # Fallback dummy icon
+            image = Image.new("RGB", (64, 64), (0, 0, 0))
             dc = ImageDraw.Draw(image)
-            dc.rectangle((width // 2 - 10, height // 2 - 10, width // 2 + 10, height // 2 + 10), fill=(0, 255, 255))
+            dc.rectangle((22, 22, 42, 42), fill=(0, 255, 255))
             return image
 
         def on_quit(icon, item):
@@ -103,10 +113,11 @@ class JarvisApp:
 
         menu = pystray.Menu(
             pystray.MenuItem(f"Trigger {self.args.routine}", on_trigger),
-            pystray.MenuItem("Settings", on_settings),
+            pystray.MenuItem("Settings...", on_settings),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_quit)
         )
-        return pystray.Icon("JarvisLauncher", create_image(), "Jarvis Launcher", menu=menu)
+        return pystray.Icon("JarvisLauncher", load_icon(), "Jarvis Launcher", menu=menu)
 
     def shutdown(self):
         self.logger.info("Initiating graceful shutdown...")
