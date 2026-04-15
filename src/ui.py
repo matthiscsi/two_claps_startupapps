@@ -118,11 +118,12 @@ class SettingsUI:
         for item in self.routine_tree.get_children():
             self.routine_tree.delete(item)
 
-        routine = self.config_manager.routines.get('morning_routine', [])
-        for item in routine:
+        routine_data = self.config_manager.routines.get('morning_routine', {})
+        items = routine_data.get('items', [])
+        for item in items:
             self.routine_tree.insert('', 'end', values=(
                 item.get('type'),
-                item.get('path'),
+                item.get('target'),
                 item.get('monitor'),
                 item.get('position')
             ), tags=(item.get('name'),))
@@ -135,16 +136,16 @@ class SettingsUI:
         name_var = tk.StringVar()
         ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=2)
 
-        ttk.Label(dialog, text="Type (app/url):").grid(row=1, column=0, padx=5, pady=2)
+        ttk.Label(dialog, text="Type (app/url/shortcut):").grid(row=1, column=0, padx=5, pady=2)
         type_var = tk.StringVar(value="app")
         ttk.Entry(dialog, textvariable=type_var).grid(row=1, column=1, padx=5, pady=2)
 
-        ttk.Label(dialog, text="Path:").grid(row=2, column=0, padx=5, pady=2)
-        path_var = tk.StringVar()
-        ttk.Entry(dialog, textvariable=path_var).grid(row=2, column=1, padx=5, pady=2)
+        ttk.Label(dialog, text="Target (Path/URL):").grid(row=2, column=0, padx=5, pady=2)
+        target_var = tk.StringVar()
+        ttk.Entry(dialog, textvariable=target_var).grid(row=2, column=1, padx=5, pady=2)
 
-        ttk.Label(dialog, text="Monitor (0, 1...):").grid(row=3, column=0, padx=5, pady=2)
-        monitor_var = tk.IntVar(value=0)
+        ttk.Label(dialog, text="Monitor (0, primary...):").grid(row=3, column=0, padx=5, pady=2)
+        monitor_var = tk.StringVar(value="0")
         ttk.Entry(dialog, textvariable=monitor_var).grid(row=3, column=1, padx=5, pady=2)
 
         ttk.Label(dialog, text="Position (full/left/right):").grid(row=4, column=0, padx=5, pady=2)
@@ -152,19 +153,29 @@ class SettingsUI:
         ttk.Entry(dialog, textvariable=pos_var).grid(row=4, column=1, padx=5, pady=2)
 
         ttk.Label(dialog, text="Delay (s):").grid(row=5, column=0, padx=5, pady=2)
-        delay_var = tk.IntVar(value=0)
+        delay_var = tk.DoubleVar(value=0.0)
         ttk.Entry(dialog, textvariable=delay_var).grid(row=5, column=1, padx=5, pady=2)
 
         def save_item():
+            # Try to convert monitor to int if it looks like one
+            monitor_val = monitor_var.get()
+            try:
+                monitor_val = int(monitor_val)
+            except ValueError:
+                pass
+
             new_item = {
                 "name": name_var.get(),
                 "type": type_var.get(),
-                "path": path_var.get(),
-                "monitor": monitor_var.get(),
+                "target": target_var.get(),
+                "monitor": monitor_val,
                 "position": pos_var.get(),
                 "delay": delay_var.get()
             }
-            self.config_manager.routines.setdefault('morning_routine', []).append(new_item)
+            routine_data = self.config_manager.routines.setdefault('morning_routine', {"items": []})
+            if "items" not in routine_data:
+                routine_data["items"] = []
+            routine_data["items"].append(new_item)
             self._refresh_routine_list()
             dialog.destroy()
 
@@ -174,9 +185,13 @@ class SettingsUI:
         selected = self.routine_tree.selection()
         if not selected: return
 
+        routine_data = self.config_manager.routines.get('morning_routine', {})
+        items = routine_data.get('items', [])
+
         for item_id in selected:
             idx = self.routine_tree.index(item_id)
-            del self.config_manager.routines['morning_routine'][idx]
+            if idx < len(items):
+                del items[idx]
 
         self._refresh_routine_list()
 

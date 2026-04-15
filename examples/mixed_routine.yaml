@@ -1,0 +1,18 @@
+routines:
+  daily:
+    items:
+      - name: "Spotify"
+        type: "app"
+        target: "spotify"
+        monitor: "secondary"
+        position: "full"
+      - name: "Dashboard"
+        type: "url"
+        target: "https://github.com"
+        monitor: "primary"
+        position: "right"
+      - name: "Terminal"
+        type: "app"
+        target: "wt.exe"
+        monitor: "primary"
+        position: "left"

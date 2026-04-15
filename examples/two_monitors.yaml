@@ -1,0 +1,18 @@
+routines:
+  work:
+    items:
+      - name: "Slack"
+        type: "app"
+        target: "slack"
+        monitor: 1
+        position: "left"
+      - name: "Email"
+        type: "url"
+        target: "https://mail.google.com"
+        monitor: 1
+        position: "right"
+      - name: "IDE"
+        type: "app"
+        target: "code"
+        monitor: 0
+        position: "full"

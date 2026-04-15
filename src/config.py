@@ -3,6 +3,7 @@ import os
 import sys
 import copy
 import shutil
+from src.validator import validate_config, ConfigValidationError
 
 def get_resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -25,29 +26,34 @@ DEFAULT_CONFIG = {
         "frame_duration": 0.02
     },
     "routines": {
-        "morning_routine": [
-            {
-                "name": "HLN News",
-                "type": "url",
-                "path": "https://www.hln.be/",
-                "monitor": 0,  # Main monitor
-                "delay": 0
-            },
-            {
-                "name": "Discord",
-                "type": "app",
-                "path": "discord", # Assuming it's in PATH or handled by special logic
-                "monitor": 1,
-                "delay": 2
-            },
-            {
-                "name": "Spotify",
-                "type": "app",
-                "path": "spotify",
-                "monitor": 1,
-                "delay": 1
-            }
-        ]
+        "morning_routine": {
+            "items": [
+                {
+                    "name": "HLN News",
+                    "type": "url",
+                    "target": "https://www.hln.be/",
+                    "monitor": "primary",
+                    "position": "full",
+                    "delay": 0
+                },
+                {
+                    "name": "Discord",
+                    "type": "app",
+                    "target": "discord",
+                    "monitor": 1,
+                    "position": "full",
+                    "delay": 2
+                },
+                {
+                    "name": "Spotify",
+                    "type": "app",
+                    "target": "spotify",
+                    "monitor": 1,
+                    "position": "full",
+                    "delay": 1
+                }
+            ]
+        }
     },
     "audio_settings": {
         "enabled": True,
@@ -76,7 +82,11 @@ class Config:
                 print(f"Note: Could not extract bundled config: {e}")
 
         if os.path.exists(config_path):
-            self.load()
+            try:
+                self.load()
+            except ConfigValidationError as e:
+                print(f"CRITICAL CONFIG ERROR: {e}")
+                sys.exit(1)
         else:
             self.save()
 
@@ -84,12 +94,33 @@ class Config:
         with open(self.config_path, "r") as f:
             user_config = yaml.safe_load(f)
             if user_config:
+                self._migrate_config(user_config)
                 # Basic deep merge (one level for simplicity)
                 for key, value in user_config.items():
                     if isinstance(value, dict) and key in self.data:
                         self.data[key].update(value)
                     else:
                         self.data[key] = value
+
+                # Validate after loading and merging
+                validate_config(self.data)
+
+    def _migrate_config(self, config):
+        """Migrate old config format to new format."""
+        if "routines" in config:
+            for name, routine in config["routines"].items():
+                if isinstance(routine, list):
+                    # Old format: list of items directly under routine name
+                    print(f"Migrating routine '{name}' to new format...")
+                    items = []
+                    for item in routine:
+                        new_item = copy.deepcopy(item)
+                        if "path" in new_item:
+                            new_item["target"] = new_item.pop("path")
+                        if "position" not in new_item:
+                            new_item["position"] = "full"
+                        items.append(new_item)
+                    config["routines"][name] = {"items": items}
 
     def save(self):
         with open(self.config_path, "w") as f:
