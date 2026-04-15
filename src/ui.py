@@ -8,6 +8,7 @@ import re
 from screeninfo import get_monitors
 from src.config import get_resource_path
 from src.startup_helper import is_startup_enabled, set_startup
+from src.logger import get_log_dir
 
 logger = logging.getLogger(__name__)
 
@@ -226,12 +227,26 @@ class SettingsUI:
         update_visibility()
 
         # System Settings
-        if sys.platform == "win32":
-            system_frame = ttk.LabelFrame(tab, text="System")
-            system_frame.pack(fill='x', padx=10, pady=5)
+        system_frame = ttk.LabelFrame(tab, text="System")
+        system_frame.pack(fill='x', padx=10, pady=5)
 
+        if sys.platform == "win32":
             self.startup_var = tk.BooleanVar(value=is_startup_enabled())
             ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(anchor='w', padx=5, pady=5)
+
+        # Logs Folder
+        def open_logs():
+            log_dir = get_log_dir()
+            if os.path.exists(log_dir):
+                if sys.platform == "win32":
+                    os.startfile(log_dir)
+                else:
+                    import subprocess
+                    subprocess.Popen(['xdg-open', log_dir])
+            else:
+                messagebox.showinfo("Information", f"Log directory does not exist yet: {log_dir}")
+
+        ttk.Button(system_frame, text="Open Logs Folder", command=open_logs).pack(anchor='w', padx=5, pady=5)
 
     def _create_routines_tab(self):
         tab = ttk.Frame(self.notebook)

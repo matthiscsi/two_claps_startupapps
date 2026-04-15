@@ -3,7 +3,10 @@ import os
 import sys
 import copy
 import shutil
+import logging
 from src.validator import validate_config, ConfigValidationError
+
+logger = logging.getLogger(__name__)
 
 def get_resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -98,6 +101,7 @@ class Config:
             self.save()
 
     def load(self):
+        logger.info(f"START: Loading config from {self.config_path}")
         try:
             with open(self.config_path, "r") as f:
                 user_config = yaml.safe_load(f)
@@ -113,10 +117,12 @@ class Config:
                     # Validate after loading and merging
                     try:
                         validate_config(self.data)
+                        logger.info("SUCCESS: Config validated.")
                     except ConfigValidationError as e:
-                        print(f"CONFIG VALIDATION WARNING: {e}. Some settings may be reset to defaults.")
+                        logger.warning(f"FAIL: Config validation warning: {e}. Some settings may be reset to defaults.")
+            logger.info(f"SUCCESS: Loaded config from {self.config_path}")
         except Exception as e:
-            print(f"ERROR LOADING CONFIG '{self.config_path}': {e}. Using defaults.")
+            logger.error(f"FAIL: Error loading config '{self.config_path}': {e}. Using defaults.")
 
     def _migrate_config(self, config):
         """Migrate old config format to new format."""

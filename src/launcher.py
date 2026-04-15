@@ -19,10 +19,12 @@ class Launcher:
     def __init__(self, config, dry_run=False, monitors=None):
         self.config = config
         self.dry_run = dry_run
+        logger.info("START: Detecting monitors...")
         try:
             self.monitors = monitors if monitors is not None else get_monitors()
+            logger.info(f"SUCCESS: Detected {len(self.monitors)} monitors.")
         except Exception as e:
-            logger.warning(f"Could not detect monitors: {e}. Falling back to single default monitor.")
+            logger.warning(f"FAIL: Could not detect monitors: {e}. Falling back to single default monitor.")
             # Fallback for headless/testing environments
             from dataclasses import dataclass
             @dataclass
@@ -87,6 +89,7 @@ class Launcher:
             return
 
         name = item.get("name", "Unknown")
+        logger.info(f"START: Launching item '{name}'")
         item_type = item.get("type")
         target = item.get("target")
         monitor = item.get("monitor", 0)
@@ -135,10 +138,11 @@ class Launcher:
                 os.startfile(target)
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=False)
+                logger.info(f"SUCCESS: Launched {name} ({item_type})")
             else:
-                logger.warning(f"Unknown item type: {item_type}")
+                logger.warning(f"FAIL: Unknown item type: {item_type}")
         except Exception as e:
-            logger.error(f"Failed to launch {name}: {e}")
+            logger.error(f"FAIL: Failed to launch {name}: {e}")
 
     def _resolve_monitor_index(self, monitor):
         # 1. Identify primary monitor index
