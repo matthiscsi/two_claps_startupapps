@@ -84,6 +84,19 @@ python build_exe.py
 ```
 The output will be in the `dist/` directory.
 
+## 🤖 CI / Build Pipeline
+
+This repository uses GitHub Actions for continuous integration and automated builds:
+
+- **CI (`ci.yml`)**: Runs automatically on every push or pull request to `main`. It installs dependencies and runs the automated test suite to ensure code quality.
+- **Build Windows Executable (`build-windows.yml`)**: Runs on every push to `main` and can be triggered manually via the **Actions** tab. It produces a standalone `JarvisLauncher.exe`.
+
+### How to download the latest build:
+1. Go to the **Actions** tab in this repository.
+2. Select the **Build Windows Executable** workflow.
+3. Click on the most recent successful run.
+4. Scroll down to **Artifacts** and download `JarvisLauncher-Windows`.
+
 ## ⚠️ Troubleshooting & Limitations
 
 - **Window Matching**: Some apps take a few seconds to initialize their windows. Use the `delay` field if an app launches but fails to reposition.
