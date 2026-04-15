@@ -28,6 +28,8 @@ def global_exception_handler(exctype, value, tb):
     sys.exit(1)
 
 sys.excepthook = global_exception_handler
+if hasattr(threading, 'excepthook'):
+    threading.excepthook = lambda args: global_exception_handler(args.exc_type, args.exc_value, args.exc_traceback)
 
 import os
 import signal
@@ -252,21 +254,25 @@ class JarvisApp:
 
         try:
             if self.detector:
-                self.detector.listen_for_double_clap(
-                    callback=lambda: self.on_trigger_routine() or False,
-                    stop_event=self.stop_event
-                )
+                try:
+                    self.detector.listen_for_double_clap(
+                        callback=lambda: self.on_trigger_routine() or False,
+                        stop_event=self.stop_event
+                    )
+                except Exception as e:
+                    self.logger.error(f"FAIL: Clap detector crashed or failed to start: {e}", exc_info=True)
+                    self.logger.info("Falling back to idle mode (Tray/UI only).")
+                    while not self.stop_event.is_set():
+                        time.sleep(1)
             else:
                 self.logger.warning("Detector not available. Entering idle mode (Tray/UI only).")
                 while not self.stop_event.is_set():
                     time.sleep(1)
         except Exception as e:
-            self.logger.error(f"Fatal error in detector: {e}")
-            if self.args.dry_run:
-                while not self.stop_event.is_set():
-                    time.sleep(1)
-            else:
-                sys.exit(1)
+            self.logger.error(f"FAIL: Fatal error in main loop: {e}", exc_info=True)
+            # Last resort fallback to keep app alive if possible
+            while not self.stop_event.is_set():
+                time.sleep(1)
         finally:
             self.shutdown()
 

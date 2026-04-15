@@ -2,6 +2,7 @@ import time
 import numpy as np
 from scipy import signal
 import logging
+from src.audio_lock import PYAUDIO_LOCK
 
 try:
     import pyaudio
@@ -38,35 +39,55 @@ class ClapDetector:
             logger.error("FAIL: PyAudio is not installed. Clap detection unavailable.")
             return False
 
-        try:
-            self.p = pyaudio.PyAudio()
-
+        with PYAUDIO_LOCK:
             try:
-                device_info = self.p.get_default_input_device_info()
-                logger.info(f"SUCCESS: Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
-            except Exception as e:
-                logger.warning(f"FAIL: Could not retrieve default input device info: {e}")
+                logger.info("START: Creating PyAudio instance...")
+                self.p = pyaudio.PyAudio()
+                logger.info("SUCCESS: PyAudio instance created.")
 
-            self.stream = self.p.open(
-                format=pyaudio.paFloat32,
-                channels=1,
-                rate=self.sampling_rate,
-                input=True,
-                frames_per_buffer=self.frame_size,
-            )
-            logger.info("SUCCESS: Audio stream opened for clap detection.")
-            return True
-        except Exception as e:
-            logger.error(f"FAIL: Failed to initialize audio input for clap detection: {e}")
-            self._cleanup_audio()
-            return False
+                try:
+                    logger.info("START: Querying default input device...")
+                    device_info = self.p.get_default_input_device_info()
+                    logger.info(f"SUCCESS: Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
+                    logger.info(f"Device Details: Sample Rate: {device_info.get('defaultSampleRate')}, Max Input Channels: {device_info.get('maxInputChannels')}")
+                except Exception as e:
+                    logger.warning(f"FAIL: Could not retrieve default input device info: {e}", exc_info=True)
+
+                logger.info(f"START: Opening audio stream (Rate: {self.sampling_rate}, Format: paFloat32, Channels: 1, FrameSize: {self.frame_size})...")
+                self.stream = self.p.open(
+                    format=pyaudio.paFloat32,
+                    channels=1,
+                    rate=self.sampling_rate,
+                    input=True,
+                    frames_per_buffer=self.frame_size,
+                )
+                logger.info("SUCCESS: Audio stream object created.")
+
+                logger.info("START: Starting audio stream...")
+                self.stream.start_stream()
+                logger.info("SUCCESS: Audio stream started.")
+
+                return True
+            except Exception as e:
+                logger.error(f"FAIL: Failed to initialize audio input for clap detection: {e}", exc_info=True)
+                self._cleanup_audio()
+                return False
 
     def _cleanup_audio(self):
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-        if self.p:
-            self.p.terminate()
+        with PYAUDIO_LOCK:
+            if self.stream:
+                try:
+                    self.stream.stop_stream()
+                    self.stream.close()
+                except:
+                    pass
+                self.stream = None
+            if self.p:
+                try:
+                    self.p.terminate()
+                except:
+                    pass
+                self.p = None
 
     def calibrate(self, stop_event=None):
         """Calibration mode to check volume levels."""
@@ -118,11 +139,15 @@ class ClapDetector:
         start_time = time.time()
 
         logger.info("Listening for claps...")
+        first_frame = True
         try:
             while stop_event is None or not stop_event.is_set():
                 try:
                     # Reducing block size for read can sometimes help with latency
                     frame_data = self.stream.read(self.frame_size, exception_on_overflow=False)
+                    if first_frame:
+                        logger.info("SUCCESS: First audio frame received.")
+                        first_frame = False
                 except Exception as e:
                     logger.error(f"Error reading audio stream: {e}")
                     time.sleep(0.1)
