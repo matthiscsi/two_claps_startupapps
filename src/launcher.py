@@ -16,10 +16,23 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class Launcher:
-    def __init__(self, config, dry_run=False):
+    def __init__(self, config, dry_run=False, monitors=None):
         self.config = config
         self.dry_run = dry_run
-        self.monitors = get_monitors()
+        try:
+            self.monitors = monitors if monitors is not None else get_monitors()
+        except Exception as e:
+            logger.warning(f"Could not detect monitors: {e}. Falling back to single default monitor.")
+            # Fallback for headless/testing environments
+            from dataclasses import dataclass
+            @dataclass
+            class MockMonitor:
+                x: int = 0
+                y: int = 0
+                width: int = 1920
+                height: int = 1080
+            self.monitors = [MockMonitor()]
+
         logger.info(f"Detected {len(self.monitors)} monitors.")
 
     def launch_routine(self, routine_name):
@@ -29,7 +42,8 @@ class Launcher:
             return
 
         logger.info(f"Executing routine: {routine_name}")
-        for item in routines[routine_name]:
+        items = routines[routine_name].get("items", [])
+        for item in items:
             try:
                 self.launch_item(item)
             except Exception as e:
@@ -38,17 +52,23 @@ class Launcher:
     def launch_item(self, item):
         name = item.get("name")
         item_type = item.get("type")
-        path = item.get("path")
-        monitor_idx = item.get("monitor", 0)
+        target = item.get("target")
+        monitor = item.get("monitor", 0)
         position = item.get("position", "full")
         delay = item.get("delay", 0)
+        window_title_match = item.get("window_title_match")
 
-        if self.is_app_running(name):
+        # Normalize monitor
+        monitor_idx = self._resolve_monitor_index(monitor)
+
+        if self.is_app_running(name, window_title_match):
             logger.info(f"{name} is already running.")
             if self.dry_run:
                 logger.info(f"[DRY-RUN] Would reposition {name}")
             else:
-                self.position_window(name, monitor_idx, position=position, is_browser=(item_type=="url"))
+                self.position_window(name, monitor_idx, position=position,
+                                     window_title_match=window_title_match,
+                                     is_browser=(item_type=="url"))
             return
 
         if delay > 0:
@@ -56,7 +76,7 @@ class Launcher:
             if not self.dry_run:
                 time.sleep(delay)
 
-        logger.info(f"Launching {name} ({item_type}) at {path} on monitor {monitor_idx}")
+        logger.info(f"Launching {name} ({item_type}) at {target} on monitor {monitor_idx}")
 
         if self.dry_run:
             logger.info(f"[DRY-RUN] Would launch {name}")
@@ -64,15 +84,30 @@ class Launcher:
 
         try:
             if item_type == "url":
-                webbrowser.open(path)
-                self.wait_and_position(name, monitor_idx, position, is_browser=True)
+                webbrowser.open(target)
+                self.wait_and_position(name, monitor_idx, position,
+                                       window_title_match=window_title_match, is_browser=True)
             elif item_type == "app":
-                self.launch_app(path)
-                self.wait_and_position(name, monitor_idx, position, is_browser=False)
+                self.launch_app(target)
+                self.wait_and_position(name, monitor_idx, position,
+                                       window_title_match=window_title_match, is_browser=False)
+            elif item_type == "shortcut":
+                os.startfile(target)
+                self.wait_and_position(name, monitor_idx, position,
+                                       window_title_match=window_title_match, is_browser=False)
             else:
                 logger.warning(f"Unknown item type: {item_type}")
         except Exception as e:
             logger.error(f"Failed to launch {name}: {e}")
+
+    def _resolve_monitor_index(self, monitor):
+        if monitor == "primary":
+            return 0
+        if monitor == "secondary":
+            return 1 if len(self.monitors) > 1 else 0
+        if isinstance(monitor, int):
+            return monitor if monitor < len(self.monitors) else 0
+        return 0
 
     def launch_app(self, path):
         if path.lower() == "discord":
@@ -88,9 +123,9 @@ class Launcher:
         else:
             subprocess.Popen(path, shell=True)
 
-    def is_app_running(self, name):
+    def is_app_running(self, name, window_title_match=None):
         # 1. Try robust window detection
-        if self.find_window_robustly(name) is not None:
+        if self.find_window_robustly(name, window_title_match) is not None:
             return True
 
         # 2. Fallback to process-based detection (Windows)
@@ -113,7 +148,7 @@ class Launcher:
 
         return False
 
-    def find_window_robustly(self, name):
+    def find_window_robustly(self, name, window_title_match=None):
         if win32gui is None: return None
 
         found_hwnd = [None]
@@ -124,6 +159,7 @@ class Launcher:
             "discord": "Chrome_WidgetWin_1" # Discord uses Electron
         }
         target_class = class_map.get(name.lower())
+        match_pattern = (window_title_match or name).lower()
 
         def callback(hwnd, extra):
             if not win32gui.IsWindowVisible(hwnd):
@@ -133,7 +169,7 @@ class Launcher:
             class_name = win32gui.GetClassName(hwnd)
 
             # Match by title or by class name if specific app
-            if name.lower() in title.lower() or (target_class and class_name == target_class):
+            if match_pattern in title.lower() or (target_class and class_name == target_class):
                 # For apps like Discord, multiple windows might have the same class,
                 # but only one has a meaningful title (usually).
                 if target_class and class_name == target_class:
@@ -146,19 +182,21 @@ class Launcher:
         win32gui.EnumWindows(callback, None)
         return found_hwnd[0]
 
-    def wait_and_position(self, name, monitor_idx, position, is_browser, timeout=10):
+    def wait_and_position(self, name, monitor_idx, position, is_browser, window_title_match=None, timeout=15):
         """Wait for window to appear before positioning."""
         start_time = time.time()
         while time.time() - start_time < timeout:
-            hwnd = self.find_window_robustly(name)
+            hwnd = self.find_window_robustly(name, window_title_match)
             if hwnd:
+                # Add a small extra delay after window appears to ensure it's ready for placement
+                time.sleep(1)
                 self.apply_position(hwnd, monitor_idx, position)
                 return
-            time.sleep(0.5)
+            time.sleep(1.0)
         logger.warning(f"Timeout waiting for window: {name}")
 
-    def position_window(self, name, monitor_idx, position="full", is_browser=False):
-        hwnd = self.find_window_robustly(name)
+    def position_window(self, name, monitor_idx, position="full", window_title_match=None, is_browser=False):
+        hwnd = self.find_window_robustly(name, window_title_match)
         if hwnd:
             self.apply_position(hwnd, monitor_idx, position)
         else:
