@@ -97,17 +97,6 @@ This repository uses GitHub Actions for continuous integration and automated bui
 3. Click on the most recent successful run.
 4. Scroll down to **Artifacts** and download `JarvisLauncher-Windows`.
 
-## 🚀 Releases
-
-To create a new formal release:
-1. Tag your commit: `git tag v0.1.0`
-2. Push the tag: `git push origin v0.1.0`
-
-The GitHub Actions pipeline will automatically:
-- Run the full test suite.
-- Build the standalone `JarvisLauncher.exe`.
-- Create a new GitHub Release with the executable attached as an asset.
-
 ## ⚠️ Troubleshooting & Limitations
 
 - **Window Matching**: Some apps take a few seconds to initialize their windows. Use the `delay` field if an app launches but fails to reposition.
