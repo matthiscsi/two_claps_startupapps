@@ -114,7 +114,7 @@ class JarvisApp:
         menu = pystray.Menu(
             pystray.MenuItem(f"Trigger {self.args.routine}", on_trigger),
             pystray.MenuItem("Settings...", on_settings),
-            pystray.MenuSeparator(),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_quit)
         )
         return pystray.Icon("JarvisLauncher", load_icon(), "Jarvis Launcher", menu=menu)
