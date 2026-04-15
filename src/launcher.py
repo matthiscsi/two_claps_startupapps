@@ -41,13 +41,18 @@ class Launcher:
             logger.error(f"Routine '{routine_name}' not found in config.")
             return
 
-        logger.info(f"Executing routine: {routine_name}")
+        logger.info(f"--- Starting Routine: {routine_name} ---")
         items = routines[routine_name].get("items", [])
-        for item in items:
+        logger.info(f"Found {len(items)} items to launch.")
+
+        for i, item in enumerate(items):
             try:
+                logger.info(f"[{i+1}/{len(items)}] Processing: {item.get('name')}")
                 self.launch_item(item)
             except Exception as e:
-                logger.error(f"Error executing routine item {item.get('name')}: {e}")
+                logger.error(f"Error executing routine item {item.get('name')}: {e}", exc_info=True)
+
+        logger.info(f"--- Routine {routine_name} Completed ---")
 
     def launch_item(self, item):
         name = item.get("name")
@@ -184,16 +189,21 @@ class Launcher:
 
     def wait_and_position(self, name, monitor_idx, position, is_browser, window_title_match=None, timeout=15):
         """Wait for window to appear before positioning."""
+        logger.info(f"Waiting up to {timeout}s for window '{name}'...")
         start_time = time.time()
-        while time.time() - start_time < timeout:
-            hwnd = self.find_window_robustly(name, window_title_match)
-            if hwnd:
-                # Add a small extra delay after window appears to ensure it's ready for placement
-                time.sleep(1)
-                self.apply_position(hwnd, monitor_idx, position)
-                return
-            time.sleep(1.0)
-        logger.warning(f"Timeout waiting for window: {name}")
+        try:
+            while time.time() - start_time < timeout:
+                hwnd = self.find_window_robustly(name, window_title_match)
+                if hwnd:
+                    logger.info(f"Window found for '{name}' (hwnd: {hwnd}) after {time.time() - start_time:.1f}s.")
+                    # Add a small extra delay after window appears to ensure it's ready for placement
+                    time.sleep(1)
+                    self.apply_position(hwnd, monitor_idx, position)
+                    return
+                time.sleep(1.0)
+            logger.warning(f"Timeout waiting for window: {name}")
+        except Exception as e:
+            logger.error(f"Error in wait_and_position for '{name}': {e}", exc_info=True)
 
     def position_window(self, name, monitor_idx, position="full", window_title_match=None, is_browser=False):
         hwnd = self.find_window_robustly(name, window_title_match)
@@ -203,14 +213,19 @@ class Launcher:
             logger.warning(f"Could not find window for {name} to position it.")
 
     def apply_position(self, hwnd, monitor_idx, position):
+        # Ensure monitor_idx is an integer
+        if not isinstance(monitor_idx, int):
+            monitor_idx = self._resolve_monitor_index(monitor_idx)
+
         if monitor_idx >= len(self.monitors):
+            logger.warning(f"Monitor index {monitor_idx} out of range. Defaulting to monitor 0.")
             monitor_idx = 0
         target_monitor = self.monitors[monitor_idx]
 
-        logger.info(f"Applying position {position} to hwnd {hwnd} on monitor {monitor_idx}")
+        logger.info(f"Applying position '{position}' to hwnd {hwnd} on monitor {monitor_idx} ({target_monitor.width}x{target_monitor.height} @ {target_monitor.x},{target_monitor.y})")
         try:
             # Restore if minimized
-            if win32gui.IsIconic(hwnd):
+            if win32gui and win32gui.IsIconic(hwnd):
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
             x, y = target_monitor.x, target_monitor.y
@@ -222,7 +237,11 @@ class Launcher:
                 x = x + (width // 2)
                 width = width // 2
 
-            # Use SetWindowPos for reliability
-            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_SHOWWINDOW)
+            if win32gui:
+                # Use SetWindowPos for reliability
+                win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_SHOWWINDOW)
+                logger.info(f"Window {hwnd} positioned successfully at {x},{y} ({width}x{height})")
+            else:
+                logger.info(f"[NON-WINDOWS] Would position window {hwnd} at {x},{y} ({width}x{height})")
         except Exception as e:
-            logger.error(f"Error positioning window: {e}")
+            logger.error(f"Error positioning window {hwnd}: {e}")

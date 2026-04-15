@@ -1,8 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import json
 import logging
 import sys
+import os
+import re
+from screeninfo import get_monitors
 
 logger = logging.getLogger(__name__)
 
@@ -134,56 +137,132 @@ class SettingsUI:
         self.routine_tree.heading('Position', text='Position')
         self.routine_tree.pack(expand=True, fill='both', padx=5, pady=5)
 
+        # Drag and Drop support
+        self.routine_tree.bind("<ButtonPress-1>", self._on_tree_click)
+        self.routine_tree.bind("<B1-Motion>", self._on_tree_drag)
+        self.routine_tree.bind("<ButtonRelease-1>", self._on_tree_release)
+        self._drag_data = {"item": None}
+
+        # Track which routine is currently selected for editing
+        self.current_routine_name = "morning_routine"
+
         self._refresh_routine_list()
 
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill='x', padx=5, pady=5)
-        ttk.Button(btn_frame, text="Add Item", command=self._add_routine_item).pack(side='left', padx=2)
+        ttk.Button(btn_frame, text="Add Shortcut", command=self._add_routine_item).pack(side='left', padx=2)
         ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side='left', padx=2)
 
     def _refresh_routine_list(self):
         for item in self.routine_tree.get_children():
             self.routine_tree.delete(item)
 
-        routine_data = self.config_manager.routines.get('morning_routine', {})
+        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
         items = routine_data.get('items', [])
-        for item in items:
+        for i, item in enumerate(items):
+            # Use name and index as a unique tag to avoid issues with duplicate names
+            tag = f"{item.get('name')}||{i}"
             self.routine_tree.insert('', 'end', values=(
                 item.get('type'),
                 item.get('target'),
                 item.get('monitor'),
                 item.get('position')
-            ), tags=(item.get('name'),))
+            ), tags=(tag,))
 
     def _add_routine_item(self):
         dialog = tk.Toplevel(self.root)
-        dialog.title("Add Routine Item")
+        dialog.title("Add Shortcut")
+        dialog.geometry("400x350")
 
-        ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=2)
+        ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky='e')
         name_var = tk.StringVar()
-        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
-        ttk.Label(dialog, text="Type (app/url/shortcut):").grid(row=1, column=0, padx=5, pady=2)
+        ttk.Label(dialog, text="Type:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
         type_var = tk.StringVar(value="app")
-        ttk.Entry(dialog, textvariable=type_var).grid(row=1, column=1, padx=5, pady=2)
+        type_combo = ttk.Combobox(dialog, textvariable=type_var, values=["app", "url", "shortcut"], state="readonly")
+        type_combo.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
 
-        ttk.Label(dialog, text="Target (Path/URL):").grid(row=2, column=0, padx=5, pady=2)
+        ttk.Label(dialog, text="Target:").grid(row=2, column=0, padx=5, pady=5, sticky='e')
+        target_frame = ttk.Frame(dialog)
+        target_frame.grid(row=2, column=1, padx=5, pady=5, sticky='ew')
         target_var = tk.StringVar()
-        ttk.Entry(dialog, textvariable=target_var).grid(row=2, column=1, padx=5, pady=2)
+        ttk.Entry(target_frame, textvariable=target_var).pack(side='left', expand=True, fill='x')
 
-        ttk.Label(dialog, text="Monitor (0, primary...):").grid(row=3, column=0, padx=5, pady=2)
-        monitor_var = tk.StringVar(value="0")
-        ttk.Entry(dialog, textvariable=monitor_var).grid(row=3, column=1, padx=5, pady=2)
+        def browse_target():
+            file_path = filedialog.askopenfilename()
+            if file_path:
+                target_var.set(file_path)
+                if not name_var.get():
+                    name_var.set(os.path.basename(file_path).split('.')[0])
 
-        ttk.Label(dialog, text="Position (full/left/right):").grid(row=4, column=0, padx=5, pady=2)
+        browse_btn = ttk.Button(target_frame, text="...", width=3, command=browse_target)
+        browse_btn.pack(side='right', padx=2)
+
+        # Update browse button visibility based on type
+        def on_type_change(event):
+            if type_var.get() == "url":
+                browse_btn.state(['disabled'])
+            else:
+                browse_btn.state(['!disabled'])
+        type_combo.bind("<<ComboboxSelected>>", on_type_change)
+
+        ttk.Label(dialog, text="Monitor:").grid(row=3, column=0, padx=5, pady=5, sticky='e')
+        monitor_var = tk.StringVar(value="primary")
+        try:
+            monitors = get_monitors()
+            monitor_values = ["primary", "secondary"] + [str(i) for i in range(len(monitors))]
+        except:
+            monitor_values = ["primary", "secondary", "0"]
+
+        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_values)
+        monitor_combo.grid(row=3, column=1, padx=5, pady=5, sticky='ew')
+
+        ttk.Label(dialog, text="Position:").grid(row=4, column=0, padx=5, pady=5, sticky='e')
         pos_var = tk.StringVar(value="full")
-        ttk.Entry(dialog, textvariable=pos_var).grid(row=4, column=1, padx=5, pady=2)
+        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right"], state="readonly").grid(row=4, column=1, padx=5, pady=5, sticky='ew')
 
-        ttk.Label(dialog, text="Delay (s):").grid(row=5, column=0, padx=5, pady=2)
+        ttk.Label(dialog, text="Icon Path:").grid(row=5, column=0, padx=5, pady=5, sticky='e')
+        icon_frame = ttk.Frame(dialog)
+        icon_frame.grid(row=5, column=1, padx=5, pady=5, sticky='ew')
+        icon_var = tk.StringVar()
+        ttk.Entry(icon_frame, textvariable=icon_var).pack(side='left', expand=True, fill='x')
+
+        def browse_icon():
+            icon_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.ico"), ("All files", "*.*")])
+            if icon_path:
+                icon_var.set(icon_path)
+
+        ttk.Button(icon_frame, text="...", width=3, command=browse_icon).pack(side='right', padx=2)
+
+        ttk.Label(dialog, text="Delay (s):").grid(row=6, column=0, padx=5, pady=5, sticky='e')
         delay_var = tk.DoubleVar(value=0.0)
-        ttk.Entry(dialog, textvariable=delay_var).grid(row=5, column=1, padx=5, pady=2)
+        ttk.Entry(dialog, textvariable=delay_var).grid(row=6, column=1, padx=5, pady=5, sticky='ew')
+
+        dialog.columnconfigure(1, weight=1)
 
         def save_item():
+            # Validate
+            name = name_var.get().strip()
+            target = target_var.get().strip()
+            item_type = type_var.get()
+
+            if not name:
+                messagebox.showerror("Error", "Name is required.")
+                return
+            if not target:
+                messagebox.showerror("Error", "Target is required.")
+                return
+
+            if item_type == "url" and not re.match(r'^https?://', target):
+                 if not messagebox.askyesno("Warning", "URL does not start with http:// or https://. Save anyway?"):
+                     return
+            elif item_type in ["app", "shortcut"] and not os.path.exists(target):
+                 # Some special cases like 'discord' might not be full paths
+                 if target.lower() not in ["discord", "spotify"] and not os.path.exists(target):
+                    if not messagebox.askyesno("Warning", f"Path '{target}' does not seem to exist. Save anyway?"):
+                        return
+
             # Try to convert monitor to int if it looks like one
             monitor_val = monitor_var.get()
             try:
@@ -192,27 +271,28 @@ class SettingsUI:
                 pass
 
             new_item = {
-                "name": name_var.get(),
-                "type": type_var.get(),
-                "target": target_var.get(),
+                "name": name,
+                "type": item_type,
+                "target": target,
                 "monitor": monitor_val,
                 "position": pos_var.get(),
-                "delay": delay_var.get()
+                "delay": delay_var.get(),
+                "icon": icon_var.get().strip()
             }
-            routine_data = self.config_manager.routines.setdefault('morning_routine', {"items": []})
+            routine_data = self.config_manager.routines.setdefault(self.current_routine_name, {"items": []})
             if "items" not in routine_data:
                 routine_data["items"] = []
             routine_data["items"].append(new_item)
             self._refresh_routine_list()
             dialog.destroy()
 
-        ttk.Button(dialog, text="Add", command=save_item).grid(row=6, columnspan=2, pady=10)
+        ttk.Button(dialog, text="Add", command=save_item).grid(row=7, columnspan=2, pady=10)
 
     def _remove_routine_item(self):
         selected = self.routine_tree.selection()
         if not selected: return
 
-        routine_data = self.config_manager.routines.get('morning_routine', {})
+        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
         items = routine_data.get('items', [])
 
         for item_id in selected:
@@ -265,12 +345,49 @@ class SettingsUI:
         if self._monitoring:
             self.root.after(50, self._update_meter)
 
+    def _on_tree_click(self, event):
+        item = self.routine_tree.identify_row(event.y)
+        if item:
+            self._drag_data["item"] = item
+
+    def _on_tree_drag(self, event):
+        if not self._drag_data["item"]:
+            return
+
+        target = self.routine_tree.identify_row(event.y)
+        if target and target != self._drag_data["item"]:
+            self.routine_tree.move(self._drag_data["item"], '', self.routine_tree.index(target))
+
+    def _on_tree_release(self, event):
+        self._drag_data["item"] = None
+
     def _save_settings(self):
         try:
             self.config_manager.data['clap_settings']['threshold'] = self.threshold_var.get()
             self.config_manager.data['clap_settings']['min_interval'] = self.min_interval_var.get()
             self.config_manager.data['audio_settings']['enabled'] = self.audio_enabled_var.get()
             self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
+
+            # Persist routine order from Treeview
+            new_items = []
+            routine_data = self.config_manager.routines.get(self.current_routine_name, {})
+            old_items = routine_data.get('items', [])
+
+            for item_id in self.routine_tree.get_children():
+                tags = self.routine_tree.item(item_id, 'tags')
+                if not tags: continue
+                # format: name||index
+                tag = tags[0]
+                try:
+                    name, idx_str = tag.rsplit("||", 1)
+                    idx = int(idx_str)
+                    if idx < len(old_items):
+                        new_items.append(old_items[idx])
+                except (ValueError, IndexError):
+                    logger.warning(f"Could not parse tag for reordering: {tag}")
+
+            if new_items or not self.routine_tree.get_children():
+                self.config_manager.routines[self.current_routine_name]['items'] = new_items
 
             self.config_manager.save()
             logger.info("Settings saved to config file.")
