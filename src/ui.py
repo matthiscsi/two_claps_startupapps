@@ -507,7 +507,11 @@ class SettingsUI:
         self._refresh_routine_list()
 
     def _update_meter(self):
-        if not self._monitoring or not self.root or not self.detector:
+        if not self._monitoring or not self.root:
+            return
+
+        if not self.detector:
+            self.state_label.config(text="NO DETECTOR", foreground="red")
             return
 
         try:

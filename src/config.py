@@ -73,39 +73,50 @@ class Config:
         self.config_path = config_path
         self.data = copy.deepcopy(DEFAULT_CONFIG)
 
-        # If config doesn't exist locally, try to extract it from bundled assets
-        if not os.path.exists(config_path):
-            try:
-                bundled_path = get_resource_path("config.yaml")
-                if os.path.exists(bundled_path) and bundled_path != os.path.abspath(config_path):
-                    shutil.copy(bundled_path, config_path)
-                    print(f"Extracted bundled config to {config_path}")
-            except Exception as e:
-                print(f"Note: Could not extract bundled config: {e}")
+        if not self.config_path:
+            print("Using default internal configuration (no config path provided).")
+            return
 
-        if os.path.exists(config_path):
-            try:
-                self.load()
-            except ConfigValidationError as e:
-                print(f"CRITICAL CONFIG ERROR: {e}")
-                sys.exit(1)
+        # If config doesn't exist locally, try to extract it from bundled assets
+        try:
+            if not os.path.exists(self.config_path):
+                try:
+                    bundled_path = get_resource_path("config.yaml")
+                    if os.path.exists(bundled_path) and bundled_path != os.path.abspath(self.config_path):
+                        shutil.copy(bundled_path, self.config_path)
+                        print(f"Extracted bundled config to {self.config_path}")
+                except Exception as e:
+                    print(f"Note: Could not extract bundled config: {e}")
+        except TypeError:
+            # Handles cases where config_path might be an invalid type for os.path.exists
+            print(f"Warning: Invalid config path type: {type(self.config_path)}. Using defaults.")
+            return
+
+        if os.path.exists(self.config_path):
+            self.load()
         else:
             self.save()
 
     def load(self):
-        with open(self.config_path, "r") as f:
-            user_config = yaml.safe_load(f)
-            if user_config:
-                self._migrate_config(user_config)
-                # Basic deep merge (one level for simplicity)
-                for key, value in user_config.items():
-                    if isinstance(value, dict) and key in self.data:
-                        self.data[key].update(value)
-                    else:
-                        self.data[key] = value
+        try:
+            with open(self.config_path, "r") as f:
+                user_config = yaml.safe_load(f)
+                if user_config:
+                    self._migrate_config(user_config)
+                    # Basic deep merge (one level for simplicity)
+                    for key, value in user_config.items():
+                        if isinstance(value, dict) and key in self.data:
+                            self.data[key].update(value)
+                        else:
+                            self.data[key] = value
 
-                # Validate after loading and merging
-                validate_config(self.data)
+                    # Validate after loading and merging
+                    try:
+                        validate_config(self.data)
+                    except ConfigValidationError as e:
+                        print(f"CONFIG VALIDATION WARNING: {e}. Some settings may be reset to defaults.")
+        except Exception as e:
+            print(f"ERROR LOADING CONFIG '{self.config_path}': {e}. Using defaults.")
 
     def _migrate_config(self, config):
         """Migrate old config format to new format."""

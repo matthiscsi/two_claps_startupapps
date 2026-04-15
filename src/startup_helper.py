@@ -70,10 +70,10 @@ def is_startup_enabled():
             try:
                 value, _ = winreg.QueryValueEx(key, APP_NAME)
                 return True
-            except FileNotFoundError:
+            except (FileNotFoundError, OSError):
                 return False
     except Exception as e:
-        logger.error(f"Failed to check startup registry: {e}")
+        logger.debug(f"Non-critical: Failed to check startup registry: {e}")
         return False
 
 def set_startup(enabled):
@@ -92,12 +92,16 @@ def set_startup(enabled):
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
             logger.info(f"Enabled startup: {cmd}")
         else:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
-                try:
-                    winreg.DeleteValue(key, APP_NAME)
-                    logger.info("Disabled startup.")
-                except FileNotFoundError:
-                    pass
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
+                    try:
+                        winreg.DeleteValue(key, APP_NAME)
+                        logger.info("Disabled startup.")
+                    except (FileNotFoundError, OSError):
+                        pass
+            except (FileNotFoundError, OSError):
+                # Key itself might not exist or be accessible
+                pass
         return True
     except Exception as e:
         logger.error(f"Failed to update startup registry: {e}")
