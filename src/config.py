@@ -56,7 +56,7 @@ DEFAULT_CONFIG = {
         }
     },
     "audio_settings": {
-        "enabled": True,
+        "enabled": False,
         "startup_phrase": "Good morning, Boss. Initializing systems.",
         "success_phrase": "Systems online. Have a productive day."
     },

@@ -17,7 +17,8 @@ class AudioEngine:
         self.enabled = config.audio_settings.get("enabled", True)
         self.initialized = False
         self._lock = threading.Lock()
-        self.maybe_initialize()
+        if self.enabled:
+            self.maybe_initialize()
 
     def maybe_initialize(self):
         if self.enabled and pygame and not self.initialized:
