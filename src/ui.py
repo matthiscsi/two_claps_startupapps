@@ -143,20 +143,32 @@ class SettingsUI:
         path_var = tk.StringVar()
         ttk.Entry(dialog, textvariable=path_var).grid(row=2, column=1, padx=5, pady=2)
 
+        ttk.Label(dialog, text="Monitor (0, 1...):").grid(row=3, column=0, padx=5, pady=2)
+        monitor_var = tk.IntVar(value=0)
+        ttk.Entry(dialog, textvariable=monitor_var).grid(row=3, column=1, padx=5, pady=2)
+
+        ttk.Label(dialog, text="Position (full/left/right):").grid(row=4, column=0, padx=5, pady=2)
+        pos_var = tk.StringVar(value="full")
+        ttk.Entry(dialog, textvariable=pos_var).grid(row=4, column=1, padx=5, pady=2)
+
+        ttk.Label(dialog, text="Delay (s):").grid(row=5, column=0, padx=5, pady=2)
+        delay_var = tk.IntVar(value=0)
+        ttk.Entry(dialog, textvariable=delay_var).grid(row=5, column=1, padx=5, pady=2)
+
         def save_item():
             new_item = {
                 "name": name_var.get(),
                 "type": type_var.get(),
                 "path": path_var.get(),
-                "monitor": 0,
-                "position": "full",
-                "delay": 0
+                "monitor": monitor_var.get(),
+                "position": pos_var.get(),
+                "delay": delay_var.get()
             }
             self.config_manager.routines.setdefault('morning_routine', []).append(new_item)
             self._refresh_routine_list()
             dialog.destroy()
 
-        ttk.Button(dialog, text="Add", command=save_item).grid(row=3, columnspan=2, pady=10)
+        ttk.Button(dialog, text="Add", command=save_item).grid(row=6, columnspan=2, pady=10)
 
     def _remove_routine_item(self):
         selected = self.routine_tree.selection()

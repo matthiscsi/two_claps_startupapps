@@ -69,6 +69,7 @@ class JarvisApp:
         self.detector.min_interval = self.config.clap_settings.get('min_interval', 0.2)
 
         self.audio.enabled = self.config.audio_settings.get('enabled', True)
+        self.audio.maybe_initialize()
 
     def create_tray_icon(self):
         if not pystray or self.args.no_tray:

@@ -44,8 +44,11 @@ class Launcher:
         delay = item.get("delay", 0)
 
         if self.is_app_running(name):
-            logger.info(f"{name} is already running. Repositioning...")
-            self.position_window(name, monitor_idx, position=position, is_browser=(item_type=="url"))
+            logger.info(f"{name} is already running.")
+            if self.dry_run:
+                logger.info(f"[DRY-RUN] Would reposition {name}")
+            else:
+                self.position_window(name, monitor_idx, position=position, is_browser=(item_type=="url"))
             return
 
         if delay > 0:

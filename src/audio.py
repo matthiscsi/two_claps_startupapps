@@ -17,12 +17,15 @@ class AudioEngine:
         self.enabled = config.audio_settings.get("enabled", True)
         self.initialized = False
         self._lock = threading.Lock()
+        self.maybe_initialize()
 
-        if self.enabled and pygame:
+    def maybe_initialize(self):
+        if self.enabled and pygame and not self.initialized:
             try:
                 # Initialize mixer with frequency consistent with gTTS
                 pygame.mixer.init(frequency=24000)
                 self.initialized = True
+                logger.info("Pygame mixer initialized.")
             except Exception as e:
                 logger.error(f"Failed to initialize pygame mixer: {e}")
                 self.enabled = False
