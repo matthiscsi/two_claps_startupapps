@@ -1,15 +1,34 @@
 import logging
 import sys
+import argparse
+import os
+import signal
+import time
+import threading
+import ctypes
+import traceback
+from PIL import Image, ImageDraw
 
-# Configure basic logging as early as possible to capture any startup issues
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+# Early logging setup to capture everything from the start
+from src.logger import setup_logger
+# We use a default log name initially; JarvisApp will refine it from config later.
+setup_logger(level=logging.INFO, log_file="launcher.log")
 logger = logging.getLogger("JarvisStartup")
 
-import argparse
+def global_exception_handler(exctype, value, tb):
+    """Global exception handler to capture unhandled crashes."""
+    logger.critical("FAIL: UNHANDLED FATAL EXCEPTION (Global Hook)", exc_info=(exctype, value, tb))
+    # On Windows, if we are in pythonw mode, there is no console.
+    if sys.platform == "win32":
+         try:
+             ctypes.windll.user32.MessageBoxW(0, f"Jarvis Launcher crashed:\n\n{value}\n\nCheck logs for details.", "Critical Error", 0x10)
+         except:
+             pass
+    logging.shutdown()
+    sys.exit(1)
+
+sys.excepthook = global_exception_handler
+
 import os
 import signal
 import time
@@ -28,7 +47,6 @@ from src.config import Config, get_resource_path
 from src.detector import ClapDetector
 from src.launcher import Launcher
 from src.audio import AudioEngine
-from src.logger import setup_logger
 from src.ui import SettingsUI
 
 class JarvisApp:
@@ -39,18 +57,20 @@ class JarvisApp:
         # Set AppUserModelID for proper taskbar grouping on Windows
         if sys.platform == "win32":
             try:
-                self.logger.info("Setting AppUserModelID for Windows...")
+                self.logger.info("START: Setting AppUserModelID for Windows...")
                 myappid = "com.jarvis.launcher.v1"
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+                self.logger.info("SUCCESS: AppUserModelID set.")
             except Exception as e:
-                self.logger.warning(f"Could not set AppUserModelID: {e}")
+                self.logger.warning(f"FAIL: Could not set AppUserModelID: {e}")
 
         # 1. Config loading
-        self.logger.info(f"Loading configuration from {args.config}...")
+        self.logger.info(f"START: Loading configuration from {args.config}...")
         try:
             self.config = Config(args.config)
+            self.logger.info("SUCCESS: Configuration loaded.")
         except Exception as e:
-            self.logger.error(f"Critical failure loading config: {e}")
+            self.logger.error(f"FAIL: Critical failure loading config: {e}", exc_info=True)
             # Fallback to default config if possible
             self.config = Config(None)
 
@@ -60,38 +80,44 @@ class JarvisApp:
         # 2. Re-setup logger with config-specific settings
         log_settings = self.config.get("logging", {})
         try:
-            self.logger = setup_logger(
+            setup_logger(
                 level=getattr(logging, log_settings.get("level", "INFO")),
                 log_file=log_settings.get("file")
             )
+            self.logger = logging.getLogger("JarvisApp")
         except Exception as e:
             print(f"Error setting up logger from config: {e}")
 
         # 3. Subsystem initialization
-        self.logger.info("Initializing subsystems...")
+        self.logger.info("START: Initializing subsystems...")
 
-        self.logger.info("Initializing Audio Engine...")
+        self.logger.info("START: Initializing Audio Engine...")
         try:
             self.audio = AudioEngine(self.config)
+            if self.audio and self.audio.initialized:
+                self.logger.info("SUCCESS: Audio Engine initialized.")
+            elif self.audio and not self.audio.enabled:
+                self.logger.info("SUCCESS: Audio Engine initialized (Disabled).")
+            else:
+                self.logger.warning("FAIL: Audio Engine initialization incomplete.")
         except Exception as e:
-            self.logger.error(f"Failed to initialize AudioEngine: {e}")
-            self.logger.debug(traceback.format_exc())
+            self.logger.error(f"FAIL: Failed to initialize AudioEngine: {e}", exc_info=True)
             self.audio = None
 
-        self.logger.info("Initializing Launcher...")
+        self.logger.info("START: Initializing Launcher...")
         try:
             self.launcher = Launcher(self.config, dry_run=args.dry_run)
+            self.logger.info("SUCCESS: Launcher initialized.")
         except Exception as e:
-            self.logger.error(f"Failed to initialize Launcher: {e}")
-            self.logger.debug(traceback.format_exc())
+            self.logger.error(f"FAIL: Failed to initialize Launcher: {e}", exc_info=True)
             self.launcher = None
 
-        self.logger.info("Initializing Clap Detector...")
+        self.logger.info("START: Initializing Clap Detector...")
         try:
             self.detector = ClapDetector(self.config)
+            self.logger.info("SUCCESS: Clap Detector initialized.")
         except Exception as e:
-            self.logger.error(f"Failed to initialize ClapDetector: {e}")
-            self.logger.debug(traceback.format_exc())
+            self.logger.error(f"FAIL: Failed to initialize ClapDetector: {e}", exc_info=True)
             self.detector = None
 
         self.routine_lock = threading.Lock()
@@ -130,7 +156,9 @@ class JarvisApp:
             self.audio.maybe_initialize()
 
     def create_tray_icon(self):
+        self.logger.info("START: Creating Tray Icon...")
         if not pystray or self.args.no_tray:
+            self.logger.info("SUCCESS: Tray icon creation skipped.")
             return None
 
         def load_icon():
@@ -162,7 +190,7 @@ class JarvisApp:
         return pystray.Icon("JarvisLauncher", load_icon(), "Jarvis Launcher", menu=menu)
 
     def show_settings(self):
-        self.logger.info("Opening settings UI...")
+        self.logger.info("START: Opening settings UI...")
         # SettingsUI handles singleton internally via _instance
         ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved, detector=self.detector)
         # We run it in a thread to keep the tray responsive.
@@ -179,7 +207,7 @@ class JarvisApp:
         # The detector loop will check stop_event or be interrupted by sys.exit in signal handler
 
     def run(self):
-        self.logger.info("Initializing Jarvis Launcher...")
+        self.logger.info("START: Running Jarvis Launcher...")
 
         if self.args.calibrate:
             if not self.detector:
@@ -190,6 +218,7 @@ class JarvisApp:
             return
 
         # Start tray icon in a separate thread
+        self.logger.info("START: Initializing System Tray...")
         try:
             self.tray_icon = self.create_tray_icon()
             if self.tray_icon:
@@ -197,11 +226,14 @@ class JarvisApp:
                     try:
                         self.tray_icon.run()
                     except Exception as e:
-                        self.logger.error(f"System tray icon crashed: {e}")
+                        self.logger.error(f"FAIL: System tray icon crashed: {e}", exc_info=True)
 
                 threading.Thread(target=run_tray, daemon=True).start()
+                self.logger.info("SUCCESS: System Tray started.")
+            else:
+                self.logger.info("SUCCESS: System Tray skipped (disabled or not available).")
         except Exception as e:
-            self.logger.error(f"Failed to create or start tray icon: {e}")
+            self.logger.error(f"FAIL: Failed to create or start tray icon: {e}", exc_info=True)
 
         # If not minimized, show settings window immediately
         if not self.args.minimized and not self.args.calibrate and not self.args.no_tray:
@@ -251,21 +283,24 @@ def parse_args():
 
 if __name__ == "__main__":
     try:
+        args = parse_args()
+        startup_mode = "Automatic (Minimized)" if args.minimized else "Manual"
+        logger.info(f"START: Jarvis Launcher starting in {startup_mode} mode.")
+        logger.info(f"Command line args: {args}")
+
         # Enable DPI awareness on Windows
         if sys.platform == 'win32':
             try:
+                logger.info("START: Setting DPI awareness...")
                 ctypes.windll.shcore.SetProcessDpiAwareness(1)
+                logger.info("SUCCESS: DPI awareness set.")
             except Exception as e:
-                logger.warning(f"Note: Could not set DPI awareness: {e}")
-
-        args = parse_args()
-        logger.info(f"Starting Jarvis Launcher with args: {args}")
+                logger.warning(f"FAIL: Could not set DPI awareness: {e}")
 
         app = JarvisApp(args)
         app.run()
     except Exception as e:
-        logger.critical(f"UNHANDLED FATAL EXCEPTION ON STARTUP: {e}")
-        logger.critical(traceback.format_exc())
+        logger.critical(f"FAIL: UNHANDLED FATAL EXCEPTION: {e}", exc_info=True)
         # On Windows, if we are in pythonw mode, there is no console.
         # For fatal startup errors, we might want a message box if possible.
         if sys.platform == "win32":

@@ -33,8 +33,9 @@ class ClapDetector:
         self.state = "IDLE"
 
     def _initialize_audio(self):
+        logger.info("START: Initializing audio input for clap detection...")
         if pyaudio is None:
-            logger.error("PyAudio is not installed. Clap detection unavailable.")
+            logger.error("FAIL: PyAudio is not installed. Clap detection unavailable.")
             return False
 
         try:
@@ -42,9 +43,9 @@ class ClapDetector:
 
             try:
                 device_info = self.p.get_default_input_device_info()
-                logger.info(f"Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
+                logger.info(f"SUCCESS: Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
             except Exception as e:
-                logger.warning(f"Could not retrieve default input device info: {e}")
+                logger.warning(f"FAIL: Could not retrieve default input device info: {e}")
 
             self.stream = self.p.open(
                 format=pyaudio.paFloat32,
@@ -53,9 +54,10 @@ class ClapDetector:
                 input=True,
                 frames_per_buffer=self.frame_size,
             )
+            logger.info("SUCCESS: Audio stream opened for clap detection.")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize audio input for clap detection: {e}")
+            logger.error(f"FAIL: Failed to initialize audio input for clap detection: {e}")
             self._cleanup_audio()
             return False
 
