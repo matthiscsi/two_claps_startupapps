@@ -73,17 +73,26 @@ class Config:
         self.config_path = config_path
         self.data = copy.deepcopy(DEFAULT_CONFIG)
 
-        # If config doesn't exist locally, try to extract it from bundled assets
-        if not os.path.exists(config_path):
-            try:
-                bundled_path = get_resource_path("config.yaml")
-                if os.path.exists(bundled_path) and bundled_path != os.path.abspath(config_path):
-                    shutil.copy(bundled_path, config_path)
-                    print(f"Extracted bundled config to {config_path}")
-            except Exception as e:
-                print(f"Note: Could not extract bundled config: {e}")
+        if not self.config_path:
+            print("Using default internal configuration (no config path provided).")
+            return
 
-        if os.path.exists(config_path):
+        # If config doesn't exist locally, try to extract it from bundled assets
+        try:
+            if not os.path.exists(self.config_path):
+                try:
+                    bundled_path = get_resource_path("config.yaml")
+                    if os.path.exists(bundled_path) and bundled_path != os.path.abspath(self.config_path):
+                        shutil.copy(bundled_path, self.config_path)
+                        print(f"Extracted bundled config to {self.config_path}")
+                except Exception as e:
+                    print(f"Note: Could not extract bundled config: {e}")
+        except TypeError:
+            # Handles cases where config_path might be an invalid type for os.path.exists
+            print(f"Warning: Invalid config path type: {type(self.config_path)}. Using defaults.")
+            return
+
+        if os.path.exists(self.config_path):
             self.load()
         else:
             self.save()

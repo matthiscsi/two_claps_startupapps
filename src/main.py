@@ -70,22 +70,28 @@ class JarvisApp:
         # 3. Subsystem initialization
         self.logger.info("Initializing subsystems...")
 
+        self.logger.info("Initializing Audio Engine...")
         try:
             self.audio = AudioEngine(self.config)
         except Exception as e:
             self.logger.error(f"Failed to initialize AudioEngine: {e}")
-            self.audio = None # Will be handled by callers
+            self.logger.debug(traceback.format_exc())
+            self.audio = None
 
+        self.logger.info("Initializing Launcher...")
         try:
             self.launcher = Launcher(self.config, dry_run=args.dry_run)
         except Exception as e:
             self.logger.error(f"Failed to initialize Launcher: {e}")
+            self.logger.debug(traceback.format_exc())
             self.launcher = None
 
+        self.logger.info("Initializing Clap Detector...")
         try:
             self.detector = ClapDetector(self.config)
         except Exception as e:
             self.logger.error(f"Failed to initialize ClapDetector: {e}")
+            self.logger.debug(traceback.format_exc())
             self.detector = None
 
         self.routine_lock = threading.Lock()
@@ -100,9 +106,12 @@ class JarvisApp:
                 return
             try:
                 self.logger.info(f"Triggering routine: {self.args.routine}")
-                self.audio.play_startup()
-                self.launcher.launch_routine(self.args.routine)
-                self.audio.play_success()
+                if self.audio:
+                    self.audio.play_startup()
+                if self.launcher:
+                    self.launcher.launch_routine(self.args.routine)
+                if self.audio:
+                    self.audio.play_success()
             finally:
                 self.routine_lock.release()
 
@@ -111,12 +120,14 @@ class JarvisApp:
     def _on_settings_saved(self):
         self.logger.info("Settings saved. Updating runtime components...")
         # Update components with new config
-        self.detector.settings = self.config.clap_settings
-        self.detector.threshold = self.config.clap_settings.get('threshold', 0.2)
-        self.detector.min_interval = self.config.clap_settings.get('min_interval', 0.2)
+        if self.detector:
+            self.detector.settings = self.config.clap_settings
+            self.detector.threshold = self.config.clap_settings.get('threshold', 0.2)
+            self.detector.min_interval = self.config.clap_settings.get('min_interval', 0.2)
 
-        self.audio.enabled = self.config.audio_settings.get('enabled', True)
-        self.audio.maybe_initialize()
+        if self.audio:
+            self.audio.enabled = self.config.audio_settings.get('enabled', True)
+            self.audio.maybe_initialize()
 
     def create_tray_icon(self):
         if not pystray or self.args.no_tray:
@@ -171,6 +182,9 @@ class JarvisApp:
         self.logger.info("Initializing Jarvis Launcher...")
 
         if self.args.calibrate:
+            if not self.detector:
+                self.logger.error("Detector not initialized. Cannot run calibration.")
+                return
             self.logger.info("ENTERING CALIBRATION MODE. Press Ctrl+C to exit.")
             self.detector.calibrate(stop_event=self.stop_event)
             return
@@ -205,10 +219,15 @@ class JarvisApp:
             self.logger.info("RUNNING IN DRY-RUN MODE")
 
         try:
-            self.detector.listen_for_double_clap(
-                callback=lambda: self.on_trigger_routine() or False,
-                stop_event=self.stop_event
-            )
+            if self.detector:
+                self.detector.listen_for_double_clap(
+                    callback=lambda: self.on_trigger_routine() or False,
+                    stop_event=self.stop_event
+                )
+            else:
+                self.logger.warning("Detector not available. Entering idle mode (Tray/UI only).")
+                while not self.stop_event.is_set():
+                    time.sleep(1)
         except Exception as e:
             self.logger.error(f"Fatal error in detector: {e}")
             if self.args.dry_run:

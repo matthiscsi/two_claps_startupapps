@@ -8,10 +8,11 @@ def setup_logger(level=logging.INFO, log_file=None):
 
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    # Console handler
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
+    # Add console handler only if no handlers exist
+    if not logger.handlers:
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
 
     # File handler
     if log_file:
