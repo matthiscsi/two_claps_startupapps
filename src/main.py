@@ -93,7 +93,7 @@ class JarvisApp:
         def on_settings(icon, item):
             self.logger.info("Opening settings UI...")
             # SettingsUI handles singleton internally via _instance
-            ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved)
+            ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved, detector=self.detector)
             # We run it in a thread to keep the tray responsive.
             # Non-daemon so it doesn't get killed instantly, but on Windows
             # we need to be careful with Tkinter and threads.
