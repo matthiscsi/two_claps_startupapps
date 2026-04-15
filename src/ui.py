@@ -7,6 +7,7 @@ import os
 import re
 from screeninfo import get_monitors
 from src.config import get_resource_path
+from src.startup_helper import is_startup_enabled, set_startup
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,14 @@ class SettingsUI:
         self.audio_mode_var.trace_add("write", update_visibility)
         self.audio_enabled_var.trace_add("write", update_visibility)
         update_visibility()
+
+        # System Settings
+        if sys.platform == "win32":
+            system_frame = ttk.LabelFrame(tab, text="System")
+            system_frame.pack(fill='x', padx=10, pady=5)
+
+            self.startup_var = tk.BooleanVar(value=is_startup_enabled())
+            ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(anchor='w', padx=5, pady=5)
 
     def _create_routines_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -626,6 +635,10 @@ class SettingsUI:
             self.config_manager.data['audio_settings']['mode'] = self.audio_mode_var.get()
             self.config_manager.data['audio_settings']['file_path'] = self.audio_file_var.get()
             self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
+
+            # Update startup setting
+            if sys.platform == "win32" and hasattr(self, 'startup_var'):
+                set_startup(self.startup_var.get())
 
             self.config_manager.save()
             logger.info("Settings saved to config file.")

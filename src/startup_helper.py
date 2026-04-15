@@ -1,6 +1,17 @@
 import os
 import sys
-import subprocess
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Try to import winreg for Windows registry access
+try:
+    import winreg
+except ImportError:
+    winreg = None
+
+REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_NAME = "JarvisLauncher"
 
 def format_bat_content(work_dir):
     # Properly quote paths for CMD/BAT
@@ -23,43 +34,102 @@ oLink.WorkingDirectory = "{vbs_work}"
 oLink.Save
 """
 
-def add_to_startup():
-    if sys.platform != "win32":
-        print("Startup helper only works on Windows.")
-        return
-
-    # Use a .vbs script to create a shortcut to the EXE or the python command
-    startup_folder = os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-
-    # Check if we are running as EXE (bundled) or script
+def get_startup_command():
+    """Returns the command to run the app on startup."""
     if getattr(sys, 'frozen', False):
-        target_path = sys.executable
-        work_dir = os.path.dirname(sys.executable)
+        # Bundled EXE
+        exe_path = sys.executable
+        return f'"{exe_path}" --minimized'
     else:
-        # For script, we need to create a .bat file
-        current_dir = os.getcwd()
-        target_path = os.path.join(current_dir, "run_jarvis.bat")
-        bat_content = format_bat_content(current_dir)
-        with open(target_path, "w") as f:
-            f.write(bat_content)
-        work_dir = current_dir
+        # Running as script
+        python_exe = sys.executable
+        script_path = os.path.abspath(sys.modules['__main__'].__file__ if '__main__' in sys.modules else "src/main.py")
+        # Ensure we use 'pythonw' if possible to avoid console window
+        if python_exe.lower().endswith("python.exe"):
+            pythonw_exe = python_exe.lower().replace("python.exe", "pythonw.exe")
+            if os.path.exists(pythonw_exe):
+                python_exe = pythonw_exe
 
-    shortcut_path = os.path.join(startup_folder, "JarvisLauncher.lnk")
-    vbs_script = format_vbs_script(shortcut_path, target_path, work_dir)
+        # Determine the root directory to set as CWD if needed,
+        # but the registry command usually just needs the full command.
+        # For a script, we might need: pythonw -m src.main --minimized
+        # But we need to be in the right directory.
+        # A better way for scripts might be a .bat file or just the full -m path if PYTHONPATH is set.
+        # However, for the most reliable startup of the script in dev,
+        # we'll assume it's run from the project root.
+        root_dir = os.getcwd()
+        return f'"{python_exe}" -m src.main --minimized'
 
-    vbs_file = "create_shortcut.vbs"
-    with open(vbs_file, "w") as f:
-        f.write(vbs_script)
+def is_startup_enabled():
+    """Checks if the app is registered in the Windows startup registry."""
+    if sys.platform != "win32" or winreg is None:
+        return False
 
     try:
-        subprocess.run(["cscript", vbs_file], check=True)
-        print(f"Successfully added Jarvis Launcher to startup: {shortcut_path}")
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_READ) as key:
+            try:
+                value, _ = winreg.QueryValueEx(key, APP_NAME)
+                return True
+            except FileNotFoundError:
+                return False
     except Exception as e:
-        print(f"Failed to create startup shortcut: {e}")
-        print(f"Ensure target exists: {target_path}")
-    finally:
-        if os.path.exists(vbs_file):
-            os.remove(vbs_file)
+        logger.error(f"Failed to check startup registry: {e}")
+        return False
+
+def set_startup(enabled):
+    """Adds or removes the app from the Windows startup registry."""
+    if sys.platform != "win32" or winreg is None:
+        logger.warning("Startup management is only available on Windows.")
+        return False
+
+    # Clean up legacy startup folder shortcut if it exists
+    _cleanup_legacy_shortcut()
+
+    try:
+        if enabled:
+            cmd = get_startup_command()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
+            logger.info(f"Enabled startup: {cmd}")
+        else:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE) as key:
+                try:
+                    winreg.DeleteValue(key, APP_NAME)
+                    logger.info("Disabled startup.")
+                except FileNotFoundError:
+                    pass
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update startup registry: {e}")
+        return False
+
+def _cleanup_legacy_shortcut():
+    """Removes the old .lnk file from the Startup folder if it exists."""
+    try:
+        startup_folder = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+        if os.path.exists(startup_folder):
+            shortcut_path = os.path.join(startup_folder, "JarvisLauncher.lnk")
+            if os.path.exists(shortcut_path):
+                os.remove(shortcut_path)
+                logger.info("Removed legacy startup shortcut.")
+
+            # Also check for the .bat file created by the old script
+            old_bat = os.path.join(os.getcwd(), "run_jarvis.bat")
+            if os.path.exists(old_bat):
+                os.remove(old_bat)
+                logger.info("Removed legacy startup .bat file.")
+    except Exception as e:
+        logger.debug(f"Legacy cleanup failed (non-critical): {e}")
+
+# Keeping add_to_startup for backward compatibility if needed,
+# but it now just uses the new registry logic.
+def add_to_startup():
+    set_startup(True)
 
 if __name__ == "__main__":
-    add_to_startup()
+    logging.basicConfig(level=logging.INFO)
+    if len(sys.argv) > 1 and sys.argv[1] == "--disable":
+        set_startup(False)
+    else:
+        set_startup(True)
+    print(f"Startup enabled: {is_startup_enabled()}")
