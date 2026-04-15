@@ -1,16 +1,27 @@
-import argparse
+import logging
 import sys
+
+# Configure basic logging as early as possible to capture any startup issues
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger("JarvisStartup")
+
+import argparse
 import os
 import signal
 import time
-import logging
 import threading
 import ctypes
+import traceback
 from PIL import Image, ImageDraw
 
 try:
     import pystray
-except ImportError:
+except (ImportError, Exception):
+    # pystray can throw exceptions on import if display environment is missing (e.g. Linux without X)
     pystray = None
 
 from src.config import Config, get_resource_path
@@ -23,32 +34,59 @@ from src.ui import SettingsUI
 class JarvisApp:
     def __init__(self, args):
         self.args = args
+        self.logger = logging.getLogger("JarvisApp")
 
         # Set AppUserModelID for proper taskbar grouping on Windows
         if sys.platform == "win32":
             try:
+                self.logger.info("Setting AppUserModelID for Windows...")
                 myappid = "com.jarvis.launcher.v1"
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
             except Exception as e:
-                print(f"Could not set AppUserModelID: {e}")
+                self.logger.warning(f"Could not set AppUserModelID: {e}")
 
-        # Don't use get_resource_path for the config file if we want it to be user-editable.
-        # But for the default, it's fine.
-        # Better: use the provided path directly, which defaults to config.yaml in current dir.
-        self.config = Config(args.config)
+        # 1. Config loading
+        self.logger.info(f"Loading configuration from {args.config}...")
+        try:
+            self.config = Config(args.config)
+        except Exception as e:
+            self.logger.error(f"Critical failure loading config: {e}")
+            # Fallback to default config if possible
+            self.config = Config(None)
 
         if args.no_audio:
             self.config.data["audio_settings"]["enabled"] = False
 
+        # 2. Re-setup logger with config-specific settings
         log_settings = self.config.get("logging", {})
-        self.logger = setup_logger(
-            level=getattr(logging, log_settings.get("level", "INFO")),
-            log_file=log_settings.get("file")
-        )
+        try:
+            self.logger = setup_logger(
+                level=getattr(logging, log_settings.get("level", "INFO")),
+                log_file=log_settings.get("file")
+            )
+        except Exception as e:
+            print(f"Error setting up logger from config: {e}")
 
-        self.audio = AudioEngine(self.config)
-        self.launcher = Launcher(self.config, dry_run=args.dry_run)
-        self.detector = ClapDetector(self.config)
+        # 3. Subsystem initialization
+        self.logger.info("Initializing subsystems...")
+
+        try:
+            self.audio = AudioEngine(self.config)
+        except Exception as e:
+            self.logger.error(f"Failed to initialize AudioEngine: {e}")
+            self.audio = None # Will be handled by callers
+
+        try:
+            self.launcher = Launcher(self.config, dry_run=args.dry_run)
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Launcher: {e}")
+            self.launcher = None
+
+        try:
+            self.detector = ClapDetector(self.config)
+        except Exception as e:
+            self.logger.error(f"Failed to initialize ClapDetector: {e}")
+            self.detector = None
 
         self.routine_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -138,9 +176,18 @@ class JarvisApp:
             return
 
         # Start tray icon in a separate thread
-        self.tray_icon = self.create_tray_icon()
-        if self.tray_icon:
-            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+        try:
+            self.tray_icon = self.create_tray_icon()
+            if self.tray_icon:
+                def run_tray():
+                    try:
+                        self.tray_icon.run()
+                    except Exception as e:
+                        self.logger.error(f"System tray icon crashed: {e}")
+
+                threading.Thread(target=run_tray, daemon=True).start()
+        except Exception as e:
+            self.logger.error(f"Failed to create or start tray icon: {e}")
 
         # If not minimized, show settings window immediately
         if not self.args.minimized and not self.args.calibrate and not self.args.no_tray:
@@ -184,13 +231,27 @@ def parse_args():
     return parser.parse_args()
 
 if __name__ == "__main__":
-    # Enable DPI awareness on Windows
-    if sys.platform == 'win32':
-        try:
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception as e:
-            print(f"Note: Could not set DPI awareness: {e}")
+    try:
+        # Enable DPI awareness on Windows
+        if sys.platform == 'win32':
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            except Exception as e:
+                logger.warning(f"Note: Could not set DPI awareness: {e}")
 
-    args = parse_args()
-    app = JarvisApp(args)
-    app.run()
+        args = parse_args()
+        logger.info(f"Starting Jarvis Launcher with args: {args}")
+
+        app = JarvisApp(args)
+        app.run()
+    except Exception as e:
+        logger.critical(f"UNHANDLED FATAL EXCEPTION ON STARTUP: {e}")
+        logger.critical(traceback.format_exc())
+        # On Windows, if we are in pythonw mode, there is no console.
+        # For fatal startup errors, we might want a message box if possible.
+        if sys.platform == "win32":
+             try:
+                 ctypes.windll.user32.MessageBoxW(0, f"Jarvis Launcher failed to start:\n\n{e}\n\nCheck logs for details.", "Critical Error", 0x10)
+             except:
+                 pass
+        sys.exit(1)

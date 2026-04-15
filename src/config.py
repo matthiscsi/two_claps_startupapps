@@ -84,28 +84,30 @@ class Config:
                 print(f"Note: Could not extract bundled config: {e}")
 
         if os.path.exists(config_path):
-            try:
-                self.load()
-            except ConfigValidationError as e:
-                print(f"CRITICAL CONFIG ERROR: {e}")
-                sys.exit(1)
+            self.load()
         else:
             self.save()
 
     def load(self):
-        with open(self.config_path, "r") as f:
-            user_config = yaml.safe_load(f)
-            if user_config:
-                self._migrate_config(user_config)
-                # Basic deep merge (one level for simplicity)
-                for key, value in user_config.items():
-                    if isinstance(value, dict) and key in self.data:
-                        self.data[key].update(value)
-                    else:
-                        self.data[key] = value
+        try:
+            with open(self.config_path, "r") as f:
+                user_config = yaml.safe_load(f)
+                if user_config:
+                    self._migrate_config(user_config)
+                    # Basic deep merge (one level for simplicity)
+                    for key, value in user_config.items():
+                        if isinstance(value, dict) and key in self.data:
+                            self.data[key].update(value)
+                        else:
+                            self.data[key] = value
 
-                # Validate after loading and merging
-                validate_config(self.data)
+                    # Validate after loading and merging
+                    try:
+                        validate_config(self.data)
+                    except ConfigValidationError as e:
+                        print(f"CONFIG VALIDATION WARNING: {e}. Some settings may be reset to defaults.")
+        except Exception as e:
+            print(f"ERROR LOADING CONFIG '{self.config_path}': {e}. Using defaults.")
 
     def _migrate_config(self, config):
         """Migrate old config format to new format."""

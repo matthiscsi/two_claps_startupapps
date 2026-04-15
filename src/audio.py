@@ -33,6 +33,7 @@ class AudioEngine:
                 except Exception as e:
                     logger.error(f"Failed to initialize pygame mixer: {e}")
                     self.enabled = False
+                    self.initialized = False
             elif not pygame:
                 logger.warning("Pygame not installed. Audio disabled.")
                 self.enabled = False
@@ -42,6 +43,10 @@ class AudioEngine:
     def play_file(self, file_path, block=False):
         if not self.enabled or not file_path:
             logger.info(f"Audio File (Disabled/No Path): {file_path}")
+            return
+
+        if not self.initialized:
+            logger.warning("Audio Engine not initialized. Cannot play file.")
             return
 
         if not os.path.exists(file_path):
@@ -87,6 +92,10 @@ class AudioEngine:
                 logger.warning("Jarvis is already speaking. Ignoring.")
                 return
             try:
+                if not self.initialized:
+                    logger.warning("Audio Engine not initialized. Cannot speak.")
+                    return
+
                 logger.info(f"Speaking: {text}")
                 tts = gTTS(text=text, lang="en")
                 fp = io.BytesIO()

@@ -51,7 +51,12 @@ class Launcher:
             return ["Monitor 0: 1920x1080 (Primary)"]
 
     def launch_routine(self, routine_name):
-        routines = self.config.routines
+        try:
+            routines = self.config.routines
+        except Exception as e:
+            logger.error(f"Failed to access routines in config: {e}")
+            return
+
         if routine_name not in routines:
             logger.error(f"Routine '{routine_name}' not found in config.")
             return
@@ -66,21 +71,32 @@ class Launcher:
 
         for i, item in enumerate(items):
             try:
-                logger.info(f"[{i+1}/{len(items)}] Processing: {item.get('name')}")
+                if not isinstance(item, dict):
+                    logger.error(f"[{i+1}/{len(items)}] Invalid item format (expected dict): {item}")
+                    continue
+                logger.info(f"[{i+1}/{len(items)}] Processing: {item.get('name', 'Unnamed')}")
                 self.launch_item(item)
             except Exception as e:
-                logger.error(f"Error executing routine item {item.get('name')}: {e}", exc_info=True)
+                logger.error(f"Error executing routine item {item.get('name', 'Unnamed')}: {e}", exc_info=True)
 
         logger.info(f"--- Routine {routine_name} Completed ---")
 
     def launch_item(self, item):
-        name = item.get("name")
+        if not item:
+            logger.warning("Empty item passed to launch_item. Skipping.")
+            return
+
+        name = item.get("name", "Unknown")
         item_type = item.get("type")
         target = item.get("target")
         monitor = item.get("monitor", 0)
         position = item.get("position", "full")
         delay = item.get("delay", 0)
         window_title_match = item.get("window_title_match")
+
+        if not item_type or not target:
+            logger.error(f"Item '{name}' is missing required fields (type: {item_type}, target: {target}). Skipping.")
+            return
 
         # Normalize monitor
         monitor_idx = self._resolve_monitor_index(monitor)
