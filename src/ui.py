@@ -87,7 +87,7 @@ class SettingsUI:
         clap_frame = ttk.LabelFrame(tab, text="Clap Detection")
         clap_frame.pack(fill='x', padx=10, pady=5)
 
-        self.threshold_var = tk.DoubleVar(value=self.config_manager.clap_settings.get('threshold', 0.2))
+        self.threshold_var = tk.DoubleVar(value=self.config_manager.clap_settings.get('threshold', 0.15))
         ttk.Label(clap_frame, text="Threshold:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         ttk.Entry(clap_frame, textvariable=self.threshold_var).grid(row=0, column=1, padx=5, pady=5)
 
@@ -143,14 +143,16 @@ class SettingsUI:
         self.file_frame.pack(fill='x', padx=5, pady=5)
         ttk.Label(self.file_frame, text="File:").pack(side='left', padx=5)
         self.audio_file_var = tk.StringVar(value=self.config_manager.audio_settings.get('file_path', ''))
-        ttk.Entry(self.file_frame, textvariable=self.audio_file_var).pack(side='left', expand=True, fill='x', padx=5)
+        self.audio_file_entry = ttk.Entry(self.file_frame, textvariable=self.audio_file_var)
+        self.audio_file_entry.pack(side='left', expand=True, fill='x', padx=5)
 
         def browse_audio():
             f = filedialog.askopenfilename(filetypes=[("Audio files", "*.mp3 *.wav *.ogg"), ("All files", "*.*")])
             if f:
                 self.audio_file_var.set(f)
 
-        ttk.Button(self.file_frame, text="...", width=3, command=browse_audio).pack(side='left', padx=2)
+        self.audio_browse_btn = ttk.Button(self.file_frame, text="...", width=3, command=browse_audio)
+        self.audio_browse_btn.pack(side='left', padx=2)
 
         def test_audio():
             # Temporarily enable if disabled for testing
@@ -178,7 +180,8 @@ class SettingsUI:
             self.config_manager.audio_settings['mode'] = old_mode
             self.config_manager.audio_settings['file_path'] = old_file
 
-        ttk.Button(self.file_frame, text="Test", command=test_audio).pack(side='left', padx=2)
+        self.audio_test_btn = ttk.Button(self.file_frame, text="Test", command=test_audio)
+        self.audio_test_btn.pack(side='left', padx=2)
 
         # Startup Phrase frame
         self.phrase_frame = ttk.Frame(audio_frame)
@@ -188,14 +191,33 @@ class SettingsUI:
         ttk.Entry(self.phrase_frame, textvariable=self.startup_phrase_var).pack(fill='x', padx=5, pady=5)
 
         def update_visibility(*args):
-            if self.audio_mode_var.get() == "tts":
+            is_enabled = self.audio_enabled_var.get()
+            mode = self.audio_mode_var.get()
+
+            if mode == "tts":
                 self.phrase_frame.pack(fill='x', padx=5, pady=5)
-                # Keep file frame for "Test" but maybe hide or grey out?
-                # Better show file frame only for "file" mode, or both.
             else:
                 self.phrase_frame.pack_forget()
 
+            # Enable/disable file controls based on mode and overall enabled state
+            if is_enabled and mode == "file":
+                self.audio_file_entry.state(['!disabled'])
+                self.audio_browse_btn.state(['!disabled'])
+                # Test button should probably work if enabled, but specifically for file mode here
+            else:
+                self.audio_file_entry.state(['disabled'])
+                self.audio_browse_btn.state(['disabled'])
+
+            # Test button and phrase field also depend on enabled state
+            if is_enabled:
+                self.audio_test_btn.state(['!disabled'])
+                # Phrase field only if TTS
+                # We don't have a ref to the phrase entry, but it's okay for now
+            else:
+                self.audio_test_btn.state(['disabled'])
+
         self.audio_mode_var.trace_add("write", update_visibility)
+        self.audio_enabled_var.trace_add("write", update_visibility)
         update_visibility()
 
     def _create_routines_tab(self):
@@ -497,6 +519,30 @@ class SettingsUI:
     def _on_tree_release(self, event):
         self._drag_data["item"] = None
 
+        # Persist the new order to the config manager immediately
+        new_items = []
+        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
+        old_items = routine_data.get('items', [])
+
+        for item_id in self.routine_tree.get_children():
+            tags = self.routine_tree.item(item_id, 'tags')
+            if not tags: continue
+            tag = tags[0]
+            try:
+                # name||index
+                _, idx_str = tag.rsplit("||", 1)
+                idx = int(idx_str)
+                if idx < len(old_items):
+                    new_items.append(old_items[idx])
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse tag during reorder: {tag}")
+
+        if new_items or not self.routine_tree.get_children():
+            logger.info(f"Updating routine '{self.current_routine_name}' order.")
+            self.config_manager.routines[self.current_routine_name]['items'] = new_items
+            # Refresh to update the tags (indices) to match the new order
+            self._refresh_routine_list()
+
     def _save_settings(self):
         try:
             self.config_manager.data['clap_settings']['threshold'] = self.threshold_var.get()
@@ -505,27 +551,6 @@ class SettingsUI:
             self.config_manager.data['audio_settings']['mode'] = self.audio_mode_var.get()
             self.config_manager.data['audio_settings']['file_path'] = self.audio_file_var.get()
             self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
-
-            # Persist routine order from Treeview
-            new_items = []
-            routine_data = self.config_manager.routines.get(self.current_routine_name, {})
-            old_items = routine_data.get('items', [])
-
-            for item_id in self.routine_tree.get_children():
-                tags = self.routine_tree.item(item_id, 'tags')
-                if not tags: continue
-                # format: name||index
-                tag = tags[0]
-                try:
-                    name, idx_str = tag.rsplit("||", 1)
-                    idx = int(idx_str)
-                    if idx < len(old_items):
-                        new_items.append(old_items[idx])
-                except (ValueError, IndexError):
-                    logger.warning(f"Could not parse tag for reordering: {tag}")
-
-            if new_items or not self.routine_tree.get_children():
-                self.config_manager.routines[self.current_routine_name]['items'] = new_items
 
             self.config_manager.save()
             logger.info("Settings saved to config file.")

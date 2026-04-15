@@ -17,7 +17,7 @@ def get_resource_path(relative_path):
 
 DEFAULT_CONFIG = {
     "clap_settings": {
-        "threshold": 0.2,
+        "threshold": 0.15,
         "min_interval": 0.2,
         "filter_low": 1400,
         "filter_high": 1800,
