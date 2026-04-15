@@ -1,35 +1,67 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import json
+import logging
+import sys
+
+logger = logging.getLogger(__name__)
+
+try:
+    import pyaudio
+except ImportError:
+    pyaudio = None
 
 class SettingsUI:
+    _instance = None
+
     def __init__(self, config_manager, on_save_callback=None):
         self.config_manager = config_manager
         self.on_save_callback = on_save_callback
         self.root = None
 
     def open(self):
-        if self.root and tk.Toplevel.winfo_exists(self.root):
-            self.root.lift()
-            return
+        if SettingsUI._instance:
+            try:
+                SettingsUI._instance.lift()
+            except:
+                SettingsUI._instance = None
+            if SettingsUI._instance:
+                return
 
-        self.root = tk.Tk()
-        self.root.title("Jarvis Launcher Settings")
-        self.root.geometry("600x500")
+        try:
+            logger.info("Initializing Settings UI window...")
+            self.root = tk.Tk()
+            SettingsUI._instance = self.root
+            self.root.title("Jarvis Launcher Settings")
+            self.root.geometry("600x500")
 
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
+            # Ensure instance is cleared when window is closed
+            def on_closing():
+                SettingsUI._instance = None
+                self.root.destroy()
 
-        self._create_general_tab()
-        self._create_routines_tab()
+            self.root.protocol("WM_DELETE_WINDOW", on_closing)
 
-        btn_frame = ttk.Frame(self.root)
-        btn_frame.pack(fill='x', padx=10, pady=10)
+            self.notebook = ttk.Notebook(self.root)
+            self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
 
-        ttk.Button(btn_frame, text="Save", command=self._save_settings).pack(side='right', padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=self.root.destroy).pack(side='right', padx=5)
+            self._create_general_tab()
+            self._create_routines_tab()
 
-        self.root.mainloop()
+            btn_frame = ttk.Frame(self.root)
+            btn_frame.pack(fill='x', padx=10, pady=10)
+
+            ttk.Button(btn_frame, text="Save", command=self._save_settings).pack(side='right', padx=5)
+            ttk.Button(btn_frame, text="Cancel", command=on_closing).pack(side='right', padx=5)
+
+            logger.info("Starting Tkinter mainloop...")
+            self.root.mainloop()
+        except Exception as e:
+            logger.error(f"Failed to open Settings UI: {e}", exc_info=True)
+            SettingsUI._instance = None
+            if self.root:
+                try: self.root.destroy()
+                except: pass
 
     def _create_general_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -50,6 +82,8 @@ class SettingsUI:
         # Device Selection (Simplified)
         if pyaudio:
             ttk.Label(clap_frame, text="Note: Uses default system microphone.").grid(row=2, column=0, columnspan=2, padx=5, pady=5)
+        else:
+            ttk.Label(clap_frame, text="Note: PyAudio not detected. Detection may be limited.", foreground="red").grid(row=2, column=0, columnspan=2, padx=5, pady=5)
 
         # Audio Settings
         audio_frame = ttk.LabelFrame(tab, text="Audio / TTS")
@@ -94,43 +128,53 @@ class SettingsUI:
             ), tags=(item.get('name'),))
 
     def _add_routine_item(self):
-        # Simple prompt for new item
         dialog = tk.Toplevel(self.root)
         dialog.title("Add Routine Item")
 
-        ttk.Label(dialog, text="Name:").grid(row=0, column=0)
+        ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=2)
         name_var = tk.StringVar()
-        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1)
+        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=2)
 
-        ttk.Label(dialog, text="Type (app/url):").grid(row=1, column=0)
+        ttk.Label(dialog, text="Type (app/url):").grid(row=1, column=0, padx=5, pady=2)
         type_var = tk.StringVar(value="app")
-        ttk.Entry(dialog, textvariable=type_var).grid(row=1, column=1)
+        ttk.Entry(dialog, textvariable=type_var).grid(row=1, column=1, padx=5, pady=2)
 
-        ttk.Label(dialog, text="Path:").grid(row=2, column=0)
+        ttk.Label(dialog, text="Path:").grid(row=2, column=0, padx=5, pady=2)
         path_var = tk.StringVar()
-        ttk.Entry(dialog, textvariable=path_var).grid(row=2, column=1)
+        ttk.Entry(dialog, textvariable=path_var).grid(row=2, column=1, padx=5, pady=2)
+
+        ttk.Label(dialog, text="Monitor (0, 1...):").grid(row=3, column=0, padx=5, pady=2)
+        monitor_var = tk.IntVar(value=0)
+        ttk.Entry(dialog, textvariable=monitor_var).grid(row=3, column=1, padx=5, pady=2)
+
+        ttk.Label(dialog, text="Position (full/left/right):").grid(row=4, column=0, padx=5, pady=2)
+        pos_var = tk.StringVar(value="full")
+        ttk.Entry(dialog, textvariable=pos_var).grid(row=4, column=1, padx=5, pady=2)
+
+        ttk.Label(dialog, text="Delay (s):").grid(row=5, column=0, padx=5, pady=2)
+        delay_var = tk.IntVar(value=0)
+        ttk.Entry(dialog, textvariable=delay_var).grid(row=5, column=1, padx=5, pady=2)
 
         def save_item():
             new_item = {
                 "name": name_var.get(),
                 "type": type_var.get(),
                 "path": path_var.get(),
-                "monitor": 0,
-                "position": "full",
-                "delay": 0
+                "monitor": monitor_var.get(),
+                "position": pos_var.get(),
+                "delay": delay_var.get()
             }
             self.config_manager.routines.setdefault('morning_routine', []).append(new_item)
             self._refresh_routine_list()
             dialog.destroy()
 
-        ttk.Button(dialog, text="Add", command=save_item).grid(row=3, columnspan=2)
+        ttk.Button(dialog, text="Add", command=save_item).grid(row=6, columnspan=2, pady=10)
 
     def _remove_routine_item(self):
         selected = self.routine_tree.selection()
         if not selected: return
 
         for item_id in selected:
-            # This is a bit naive, ideally we match by index
             idx = self.routine_tree.index(item_id)
             del self.config_manager.routines['morning_routine'][idx]
 
@@ -144,9 +188,12 @@ class SettingsUI:
             self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
 
             self.config_manager.save()
+            logger.info("Settings saved to config file.")
             if self.on_save_callback:
                 self.on_save_callback()
             messagebox.showinfo("Success", "Settings saved successfully!")
+            SettingsUI._instance = None
             self.root.destroy()
         except Exception as e:
+            logger.error(f"Failed to save settings: {e}")
             messagebox.showerror("Error", f"Failed to save settings: {e}")

@@ -32,7 +32,7 @@ def test_launcher_invalid_routine(mock_config):
 def test_smart_launching(mock_config):
     with patch('src.launcher.get_monitors') as mock_monitors:
         mock_monitors.return_value = [MagicMock()]
-        launcher = Launcher(mock_config, dry_run=True)
+        launcher = Launcher(mock_config, dry_run=False) # dry_run=False to test positioning
 
         with patch.object(launcher, 'is_app_running', return_value=True) as mock_running:
             with patch.object(launcher, 'position_window') as mock_pos:

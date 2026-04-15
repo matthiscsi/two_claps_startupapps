@@ -69,6 +69,7 @@ class JarvisApp:
         self.detector.min_interval = self.config.clap_settings.get('min_interval', 0.2)
 
         self.audio.enabled = self.config.audio_settings.get('enabled', True)
+        self.audio.maybe_initialize()
 
     def create_tray_icon(self):
         if not pystray or self.args.no_tray:
@@ -91,9 +92,13 @@ class JarvisApp:
 
         def on_settings(icon, item):
             self.logger.info("Opening settings UI...")
+            # SettingsUI handles singleton internally via _instance
             ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved)
-            # Need to run UI in a thread because we are in the tray thread
-            threading.Thread(target=ui.open, daemon=True).start()
+            # We run it in a thread to keep the tray responsive.
+            # Non-daemon so it doesn't get killed instantly, but on Windows
+            # we need to be careful with Tkinter and threads.
+            ui_thread = threading.Thread(target=ui.open)
+            ui_thread.start()
 
         menu = pystray.Menu(
             pystray.MenuItem(f"Trigger {self.args.routine}", on_trigger),
