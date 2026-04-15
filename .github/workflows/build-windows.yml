@@ -1,0 +1,58 @@
+name: Build and Release Windows Executable
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pywin32 pyaudio
+
+    - name: Run tests
+      env:
+        PYTHONPATH: .
+      run: |
+        python -m pytest tests/
+
+    - name: Build with PyInstaller
+      run: |
+        python build_exe.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: JarvisLauncher-Windows
+        path: dist/JarvisLauncher.exe
+        if-no-files-found: error
+
+    - name: Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tag_name="${GITHUB_REF#refs/tags/}"
+        # Create release if it doesn't exist, otherwise upload to it
+        if ! gh release view "$tag_name" >/dev/null 2>&1; then
+          gh release create "$tag_name" dist/JarvisLauncher.exe --title "Release $tag_name" --notes "Automated release for version $tag_name"
+        else
+          gh release upload "$tag_name" dist/JarvisLauncher.exe --clobber
+        fi
