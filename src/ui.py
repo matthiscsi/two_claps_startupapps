@@ -58,6 +58,10 @@ class SettingsUI:
 
             self.root.protocol("WM_DELETE_WINDOW", on_closing)
 
+            self.style = ttk.Style()
+            # Use a custom style to avoid affecting all Treeview widgets
+            self.style.configure("Routine.Treeview", rowheight=30)
+
             self.notebook = ttk.Notebook(self.root)
             self.notebook.pack(expand=True, fill='both', padx=15, pady=15)
 
@@ -224,17 +228,41 @@ class SettingsUI:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Morning Routine")
 
-        self.routine_tree = ttk.Treeview(tab, columns=('Type', 'Path', 'Monitor', 'Position'), show='headings')
+        helper_label = ttk.Label(tab, text="Drag items using the ☰ handle to reorder startup sequence", font=('', 9, 'italic'), foreground='#666')
+        helper_label.pack(anchor='w', padx=10, pady=(10, 2))
+
+        tree_frame = ttk.Frame(tab)
+        tree_frame.pack(expand=True, fill='both', padx=10, pady=5)
+
+        self.routine_tree = ttk.Treeview(tree_frame, columns=('Handle', 'Type', 'Path', 'Monitor', 'Position'), show='headings', style="Routine.Treeview")
+        self.routine_tree.tag_configure('dragging', background='#e1f5fe')
+
+        self.routine_tree.heading('Handle', text='')
+        self.routine_tree.column('Handle', width=40, anchor='center', stretch=False)
+
         self.routine_tree.heading('Type', text='Type')
+        self.routine_tree.column('Type', width=80)
+
         self.routine_tree.heading('Path', text='Path')
+
         self.routine_tree.heading('Monitor', text='Monitor')
+        self.routine_tree.column('Monitor', width=80)
+
         self.routine_tree.heading('Position', text='Position')
-        self.routine_tree.pack(expand=True, fill='both', padx=5, pady=5)
+        self.routine_tree.column('Position', width=80)
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.routine_tree.yview)
+        self.routine_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.routine_tree.pack(side='left', expand=True, fill='both')
+        scrollbar.pack(side='right', fill='y')
 
         # Drag and Drop support
         self.routine_tree.bind("<ButtonPress-1>", self._on_tree_click)
         self.routine_tree.bind("<B1-Motion>", self._on_tree_drag)
         self.routine_tree.bind("<ButtonRelease-1>", self._on_tree_release)
+        self.routine_tree.bind("<Motion>", self._on_tree_motion)
+        self.routine_tree.bind("<Leave>", lambda e: self.routine_tree.config(cursor=""))
         self._drag_data = {"item": None}
 
         # Track which routine is currently selected for editing
@@ -243,10 +271,10 @@ class SettingsUI:
         self._refresh_routine_list()
 
         btn_frame = ttk.Frame(tab)
-        btn_frame.pack(fill='x', padx=5, pady=5)
-        ttk.Button(btn_frame, text="Add Shortcut", command=self._add_routine_item).pack(side='left', padx=2)
-        ttk.Button(btn_frame, text="Edit Item", command=self._edit_routine_item).pack(side='left', padx=2)
-        ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side='left', padx=2)
+        btn_frame.pack(fill='x', padx=10, pady=(5, 15))
+        ttk.Button(btn_frame, text="Add Shortcut", command=self._add_routine_item).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Edit Item", command=self._edit_routine_item).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side='left', padx=5)
 
     def _refresh_routine_list(self):
         for item in self.routine_tree.get_children():
@@ -258,6 +286,7 @@ class SettingsUI:
             # Use name and index as a unique tag to avoid issues with duplicate names
             tag = f"{item.get('name')}||{i}"
             self.routine_tree.insert('', 'end', values=(
+                "☰",
                 item.get('type'),
                 item.get('target'),
                 item.get('monitor'),
@@ -504,9 +533,14 @@ class SettingsUI:
             self.root.after(50, self._update_meter)
 
     def _on_tree_click(self, event):
+        column = self.routine_tree.identify_column(event.x)
         item = self.routine_tree.identify_row(event.y)
-        if item:
+
+        # Only allow dragging from the 'Handle' column (#1)
+        if item and column == '#1':
             self._drag_data["item"] = item
+            # Add visual feedback
+            self.routine_tree.item(item, tags=self.routine_tree.item(item, "tags") + ("dragging",))
 
     def _on_tree_drag(self, event):
         if not self._drag_data["item"]:
@@ -516,7 +550,21 @@ class SettingsUI:
         if target and target != self._drag_data["item"]:
             self.routine_tree.move(self._drag_data["item"], '', self.routine_tree.index(target))
 
+    def _on_tree_motion(self, event):
+        column = self.routine_tree.identify_column(event.x)
+        if column == '#1':
+            self.routine_tree.config(cursor="fleur")
+        else:
+            self.routine_tree.config(cursor="")
+
     def _on_tree_release(self, event):
+        if self._drag_data["item"]:
+            # Remove visual feedback
+            tags = list(self.routine_tree.item(self._drag_data["item"], "tags"))
+            if "dragging" in tags:
+                tags.remove("dragging")
+            self.routine_tree.item(self._drag_data["item"], tags=tuple(tags))
+
         self._drag_data["item"] = None
 
         # Persist the new order to the config manager immediately
@@ -527,10 +575,20 @@ class SettingsUI:
         for item_id in self.routine_tree.get_children():
             tags = self.routine_tree.item(item_id, 'tags')
             if not tags: continue
-            tag = tags[0]
+
+            # Find the identifier tag (contains '||')
+            id_tag = None
+            for t in tags:
+                if "||" in t:
+                    id_tag = t
+                    break
+
+            if not id_tag:
+                continue
+
             try:
                 # name||index
-                _, idx_str = tag.rsplit("||", 1)
+                _, idx_str = id_tag.rsplit("||", 1)
                 idx = int(idx_str)
                 if idx < len(old_items):
                     new_items.append(old_items[idx])
