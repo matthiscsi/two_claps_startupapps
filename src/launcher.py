@@ -35,6 +35,21 @@ class Launcher:
 
         logger.info(f"Detected {len(self.monitors)} monitors.")
 
+    @staticmethod
+    def get_monitor_options():
+        """Returns a list of descriptive monitor labels for the UI."""
+        try:
+            monitors = get_monitors()
+            options = []
+            for i, m in enumerate(monitors):
+                primary_flag = " (Primary)" if getattr(m, 'is_primary', False) or i == 0 else ""
+                label = f"Monitor {i}: {m.width}x{m.height} @ {m.x},{m.y}{primary_flag}"
+                options.append(label)
+            return options
+        except Exception as e:
+            logger.warning(f"Error detecting monitors for UI: {e}")
+            return ["Monitor 0: 1920x1080 (Primary)"]
+
     def launch_routine(self, routine_name):
         routines = self.config.routines
         if routine_name not in routines:
@@ -93,7 +108,7 @@ class Launcher:
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=True)
             elif item_type == "app":
-                self.launch_app(target)
+                self.launch_app(target, item.get("args"))
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=False)
             elif item_type == "shortcut":
@@ -106,15 +121,42 @@ class Launcher:
             logger.error(f"Failed to launch {name}: {e}")
 
     def _resolve_monitor_index(self, monitor):
-        if monitor == "primary":
-            return 0
-        if monitor == "secondary":
-            return 1 if len(self.monitors) > 1 else 0
-        if isinstance(monitor, int):
-            return monitor if monitor < len(self.monitors) else 0
-        return 0
+        # 1. Identify primary monitor index
+        primary_idx = 0
+        for i, m in enumerate(self.monitors):
+            if getattr(m, 'is_primary', False):
+                primary_idx = i
+                break
 
-    def launch_app(self, path):
+        # 2. Resolve requested monitor
+        if monitor == "primary":
+            return primary_idx
+        if monitor == "secondary":
+            # Just take the first non-primary monitor if available
+            for i in range(len(self.monitors)):
+                if i != primary_idx:
+                    return i
+            return primary_idx
+
+        if isinstance(monitor, int):
+            if 0 <= monitor < len(self.monitors):
+                return monitor
+            else:
+                logger.warning(f"Monitor index {monitor} out of range. Falling back to primary ({primary_idx}).")
+                return primary_idx
+
+        # If it's a string that might be an index (from old configs or UI)
+        try:
+            idx = int(monitor)
+            if 0 <= idx < len(self.monitors):
+                return idx
+        except (ValueError, TypeError):
+            pass
+
+        return primary_idx
+
+    def launch_app(self, path, args=None):
+        logger.info(f"Launching app '{path}' with args '{args}'")
         if path.lower() == "discord":
             local_app_data = os.environ.get("LOCALAPPDATA")
             if local_app_data:
@@ -126,7 +168,10 @@ class Launcher:
         elif path.lower() == "spotify":
             subprocess.Popen(["start", "spotify"], shell=True)
         else:
-            subprocess.Popen(path, shell=True)
+            cmd = path
+            if args:
+                cmd = f'"{path}" {args}'
+            subprocess.Popen(cmd, shell=True)
 
     def is_app_running(self, name, window_title_match=None):
         # 1. Try robust window detection
@@ -236,6 +281,11 @@ class Launcher:
             elif position == "right":
                 x = x + (width // 2)
                 width = width // 2
+            elif position == "top":
+                height = height // 2
+            elif position == "bottom":
+                y = y + (height // 2)
+                height = height // 2
 
             if win32gui:
                 # Use SetWindowPos for reliability

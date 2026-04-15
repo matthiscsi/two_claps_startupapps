@@ -119,12 +119,75 @@ class SettingsUI:
         audio_frame = ttk.LabelFrame(tab, text="Audio / TTS")
         audio_frame.pack(fill='x', padx=10, pady=5)
 
-        self.audio_enabled_var = tk.BooleanVar(value=self.config_manager.audio_settings.get('enabled', True))
+        self.audio_enabled_var = tk.BooleanVar(value=self.config_manager.audio_settings.get('enabled', False))
         ttk.Checkbutton(audio_frame, text="Enable Jarvis Feedback", variable=self.audio_enabled_var).pack(anchor='w', padx=5, pady=5)
 
+        mode_frame = ttk.Frame(audio_frame)
+        mode_frame.pack(fill='x', padx=5, pady=5)
+        ttk.Label(mode_frame, text="Mode:").pack(side='left', padx=5)
+        self.audio_mode_var = tk.StringVar(value=self.config_manager.audio_settings.get('mode', 'tts'))
+        ttk.Radiobutton(mode_frame, text="TTS", variable=self.audio_mode_var, value="tts").pack(side='left', padx=5)
+        ttk.Radiobutton(mode_frame, text="Audio File", variable=self.audio_mode_var, value="file").pack(side='left', padx=5)
+
+        # File selection frame
+        self.file_frame = ttk.Frame(audio_frame)
+        self.file_frame.pack(fill='x', padx=5, pady=5)
+        ttk.Label(self.file_frame, text="File:").pack(side='left', padx=5)
+        self.audio_file_var = tk.StringVar(value=self.config_manager.audio_settings.get('file_path', ''))
+        ttk.Entry(self.file_frame, textvariable=self.audio_file_var).pack(side='left', expand=True, fill='x', padx=5)
+
+        def browse_audio():
+            f = filedialog.askopenfilename(filetypes=[("Audio files", "*.mp3 *.wav *.ogg"), ("All files", "*.*")])
+            if f:
+                self.audio_file_var.set(f)
+
+        ttk.Button(self.file_frame, text="...", width=3, command=browse_audio).pack(side='left', padx=2)
+
+        def test_audio():
+            # Temporarily enable if disabled for testing
+            old_enabled = self.config_manager.audio_settings.get('enabled')
+            old_mode = self.config_manager.audio_settings.get('mode')
+            old_file = self.config_manager.audio_settings.get('file_path')
+
+            self.config_manager.audio_settings['enabled'] = True
+            self.config_manager.audio_settings['mode'] = self.audio_mode_var.get()
+            self.config_manager.audio_settings['file_path'] = self.audio_file_var.get()
+
+            # Use a dummy detector if needed or just initialize engine
+            from src.audio import AudioEngine
+            temp_engine = AudioEngine(self.config_manager)
+            temp_engine.enabled = True
+            temp_engine.maybe_initialize()
+
+            if self.audio_mode_var.get() == "tts":
+                temp_engine.speak(self.startup_phrase_var.get())
+            else:
+                temp_engine.play_file(self.audio_file_var.get())
+
+            # Restore
+            self.config_manager.audio_settings['enabled'] = old_enabled
+            self.config_manager.audio_settings['mode'] = old_mode
+            self.config_manager.audio_settings['file_path'] = old_file
+
+        ttk.Button(self.file_frame, text="Test", command=test_audio).pack(side='left', padx=2)
+
+        # Startup Phrase frame
+        self.phrase_frame = ttk.Frame(audio_frame)
+        self.phrase_frame.pack(fill='x', padx=5, pady=5)
         self.startup_phrase_var = tk.StringVar(value=self.config_manager.audio_settings.get('startup_phrase', ''))
-        ttk.Label(audio_frame, text="Startup Phrase:").pack(anchor='w', padx=5)
-        ttk.Entry(audio_frame, textvariable=self.startup_phrase_var).pack(fill='x', padx=5, pady=5)
+        ttk.Label(self.phrase_frame, text="Startup Phrase:").pack(anchor='w', padx=5)
+        ttk.Entry(self.phrase_frame, textvariable=self.startup_phrase_var).pack(fill='x', padx=5, pady=5)
+
+        def update_visibility(*args):
+            if self.audio_mode_var.get() == "tts":
+                self.phrase_frame.pack(fill='x', padx=5, pady=5)
+                # Keep file frame for "Test" but maybe hide or grey out?
+                # Better show file frame only for "file" mode, or both.
+            else:
+                self.phrase_frame.pack_forget()
+
+        self.audio_mode_var.trace_add("write", update_visibility)
+        update_visibility()
 
     def _create_routines_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -151,6 +214,7 @@ class SettingsUI:
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill='x', padx=5, pady=5)
         ttk.Button(btn_frame, text="Add Shortcut", command=self._add_routine_item).pack(side='left', padx=2)
+        ttk.Button(btn_frame, text="Edit Item", command=self._edit_routine_item).pack(side='left', padx=2)
         ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side='left', padx=2)
 
     def _refresh_routine_list(self):
@@ -169,24 +233,52 @@ class SettingsUI:
                 item.get('position')
             ), tags=(tag,))
 
-    def _add_routine_item(self):
+    def _edit_routine_item(self):
+        selected = self.routine_tree.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select an item to edit.")
+            return
+
+        item_id = selected[0]
+        tags = self.routine_tree.item(item_id, 'tags')
+        if not tags: return
+
+        try:
+            # Extract the original index from the tag (name||index)
+            _, idx_str = tags[0].rsplit("||", 1)
+            idx = int(idx_str)
+        except (ValueError, IndexError):
+            # Fallback to visual index if tag is broken
+            idx = self.routine_tree.index(item_id)
+
+        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
+        items = routine_data.get('items', [])
+
+        if 0 <= idx < len(items):
+            self._add_routine_item(edit_index=idx)
+
+    def _add_routine_item(self, edit_index=None):
         dialog = tk.Toplevel(self.root)
-        dialog.title("Add Shortcut")
+        is_edit = edit_index is not None
+        dialog.title("Edit Shortcut" if is_edit else "Add Shortcut")
         dialog.geometry("400x350")
 
+        routine_data = self.config_manager.routines.get(self.current_routine_name, {"items": []})
+        old_item = routine_data['items'][edit_index] if is_edit else {}
+
         ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky='e')
-        name_var = tk.StringVar()
+        name_var = tk.StringVar(value=old_item.get('name', ''))
         ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
         ttk.Label(dialog, text="Type:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
-        type_var = tk.StringVar(value="app")
+        type_var = tk.StringVar(value=old_item.get('type', 'app'))
         type_combo = ttk.Combobox(dialog, textvariable=type_var, values=["app", "url", "shortcut"], state="readonly")
         type_combo.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
 
         ttk.Label(dialog, text="Target:").grid(row=2, column=0, padx=5, pady=5, sticky='e')
         target_frame = ttk.Frame(dialog)
         target_frame.grid(row=2, column=1, padx=5, pady=5, sticky='ew')
-        target_var = tk.StringVar()
+        target_var = tk.StringVar(value=old_item.get('target', ''))
         ttk.Entry(target_frame, textvariable=target_var).pack(side='left', expand=True, fill='x')
 
         def browse_target():
@@ -208,24 +300,39 @@ class SettingsUI:
         type_combo.bind("<<ComboboxSelected>>", on_type_change)
 
         ttk.Label(dialog, text="Monitor:").grid(row=3, column=0, padx=5, pady=5, sticky='e')
-        monitor_var = tk.StringVar(value="primary")
-        try:
-            monitors = get_monitors()
-            monitor_values = ["primary", "secondary"] + [str(i) for i in range(len(monitors))]
-        except:
-            monitor_values = ["primary", "secondary", "0"]
 
-        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_values)
+        from src.launcher import Launcher
+        monitor_options = Launcher.get_monitor_options()
+
+        monitor_var = tk.StringVar()
+        # Find default selection
+        selected_option = monitor_options[0]
+
+        current_monitor = old_item.get('monitor')
+        if current_monitor is not None:
+             # Try to find the matching option
+             for opt in monitor_options:
+                 if opt.startswith(f"Monitor {current_monitor}:"):
+                     selected_option = opt
+                     break
+        else:
+            for opt in monitor_options:
+                if "(Primary)" in opt:
+                    selected_option = opt
+                    break
+
+        monitor_var.set(selected_option)
+        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_options, state="readonly")
         monitor_combo.grid(row=3, column=1, padx=5, pady=5, sticky='ew')
 
         ttk.Label(dialog, text="Position:").grid(row=4, column=0, padx=5, pady=5, sticky='e')
-        pos_var = tk.StringVar(value="full")
-        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right"], state="readonly").grid(row=4, column=1, padx=5, pady=5, sticky='ew')
+        pos_var = tk.StringVar(value=old_item.get('position', 'full'))
+        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right", "top", "bottom"], state="readonly").grid(row=4, column=1, padx=5, pady=5, sticky='ew')
 
         ttk.Label(dialog, text="Icon Path:").grid(row=5, column=0, padx=5, pady=5, sticky='e')
         icon_frame = ttk.Frame(dialog)
         icon_frame.grid(row=5, column=1, padx=5, pady=5, sticky='ew')
-        icon_var = tk.StringVar()
+        icon_var = tk.StringVar(value=old_item.get('icon', ''))
         ttk.Entry(icon_frame, textvariable=icon_var).pack(side='left', expand=True, fill='x')
 
         def browse_icon():
@@ -236,8 +343,12 @@ class SettingsUI:
         ttk.Button(icon_frame, text="...", width=3, command=browse_icon).pack(side='right', padx=2)
 
         ttk.Label(dialog, text="Delay (s):").grid(row=6, column=0, padx=5, pady=5, sticky='e')
-        delay_var = tk.DoubleVar(value=0.0)
+        delay_var = tk.DoubleVar(value=old_item.get('delay', 0.0))
         ttk.Entry(dialog, textvariable=delay_var).grid(row=6, column=1, padx=5, pady=5, sticky='ew')
+
+        ttk.Label(dialog, text="Arguments:").grid(row=7, column=0, padx=5, pady=5, sticky='e')
+        args_var = tk.StringVar(value=old_item.get('args', ''))
+        ttk.Entry(dialog, textvariable=args_var).grid(row=7, column=1, padx=5, pady=5, sticky='ew')
 
         dialog.columnconfigure(1, weight=1)
 
@@ -263,17 +374,26 @@ class SettingsUI:
                     if not messagebox.askyesno("Warning", f"Path '{target}' does not seem to exist. Save anyway?"):
                         return
 
-            # Try to convert monitor to int if it looks like one
+            # Extract monitor index from label (e.g. "Monitor 0: ...")
             monitor_val = monitor_var.get()
-            try:
-                monitor_val = int(monitor_val)
-            except ValueError:
-                pass
+            if monitor_val.startswith("Monitor "):
+                try:
+                    # Extracts '0' from 'Monitor 0: ...'
+                    monitor_val = int(monitor_val.split(":")[0].split(" ")[1])
+                except (IndexError, ValueError):
+                    monitor_val = 0
+            else:
+                # Fallback for primary/secondary strings if they somehow remain
+                try:
+                    monitor_val = int(monitor_val)
+                except ValueError:
+                    pass
 
             new_item = {
                 "name": name,
                 "type": item_type,
                 "target": target,
+                "args": args_var.get().strip(),
                 "monitor": monitor_val,
                 "position": pos_var.get(),
                 "delay": delay_var.get(),
@@ -282,11 +402,18 @@ class SettingsUI:
             routine_data = self.config_manager.routines.setdefault(self.current_routine_name, {"items": []})
             if "items" not in routine_data:
                 routine_data["items"] = []
-            routine_data["items"].append(new_item)
+
+            if is_edit:
+                logger.info(f"Updating routine item {edit_index}: {new_item['name']}")
+                routine_data["items"][edit_index] = new_item
+            else:
+                logger.info(f"Adding new routine item: {new_item['name']}")
+                routine_data["items"].append(new_item)
+
             self._refresh_routine_list()
             dialog.destroy()
 
-        ttk.Button(dialog, text="Add", command=save_item).grid(row=7, columnspan=2, pady=10)
+        ttk.Button(dialog, text="Save" if is_edit else "Add", command=save_item).grid(row=8, columnspan=2, pady=10)
 
     def _remove_routine_item(self):
         selected = self.routine_tree.selection()
@@ -366,6 +493,8 @@ class SettingsUI:
             self.config_manager.data['clap_settings']['threshold'] = self.threshold_var.get()
             self.config_manager.data['clap_settings']['min_interval'] = self.min_interval_var.get()
             self.config_manager.data['audio_settings']['enabled'] = self.audio_enabled_var.get()
+            self.config_manager.data['audio_settings']['mode'] = self.audio_mode_var.get()
+            self.config_manager.data['audio_settings']['file_path'] = self.audio_file_var.get()
             self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
 
             # Persist routine order from Treeview
