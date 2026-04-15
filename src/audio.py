@@ -14,25 +14,29 @@ logger = logging.getLogger(__name__)
 class AudioEngine:
     def __init__(self, config):
         self.config = config
-        self.enabled = config.audio_settings.get("enabled", True)
+        self.enabled = config.audio_settings.get("enabled", False)
         self.initialized = False
         self._lock = threading.Lock()
+        logger.info(f"Audio engine initialized (enabled: {self.enabled})")
         if self.enabled:
             self.maybe_initialize()
 
     def maybe_initialize(self):
-        if self.enabled and pygame and not self.initialized:
-            try:
-                # Initialize mixer with frequency consistent with gTTS
-                pygame.mixer.init(frequency=24000)
-                self.initialized = True
-                logger.info("Pygame mixer initialized.")
-            except Exception as e:
-                logger.error(f"Failed to initialize pygame mixer: {e}")
+        if self.enabled:
+            if pygame and not self.initialized:
+                try:
+                    # Initialize mixer with frequency consistent with gTTS
+                    pygame.mixer.init(frequency=24000)
+                    self.initialized = True
+                    logger.info("Pygame mixer initialized for TTS.")
+                except Exception as e:
+                    logger.error(f"Failed to initialize pygame mixer: {e}")
+                    self.enabled = False
+            elif not pygame:
+                logger.warning("Pygame not installed. Audio disabled.")
                 self.enabled = False
-        elif not pygame:
-            logger.warning("Pygame not installed. Audio disabled.")
-            self.enabled = False
+        else:
+            logger.info("TTS is disabled in configuration. Skipping initialization.")
 
     def speak(self, text, block=False):
         if not self.enabled or not text:

@@ -5,6 +5,7 @@ import signal
 import time
 import logging
 import threading
+import ctypes
 from PIL import Image, ImageDraw
 
 try:
@@ -164,6 +165,13 @@ def parse_args():
     return parser.parse_args()
 
 if __name__ == "__main__":
+    # Enable DPI awareness on Windows
+    if sys.platform == 'win32':
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception as e:
+            print(f"Note: Could not set DPI awareness: {e}")
+
     args = parse_args()
     app = JarvisApp(args)
     app.run()
