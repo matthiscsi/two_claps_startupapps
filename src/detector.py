@@ -26,14 +26,23 @@ class ClapDetector:
             fs=self.sampling_rate,
             output="sos",
         )
-        self.window = signal.windows.hann(self.frame_size)
         self.p = None
         self.stream = None
+        self.last_peak = 0.0
+        self.clap_count = 0
+        self.state = "IDLE"
 
     def _initialize_audio(self):
         if pyaudio is None:
             raise ImportError("PyAudio is not installed. Clap detection unavailable.")
         self.p = pyaudio.PyAudio()
+
+        try:
+            device_info = self.p.get_default_input_device_info()
+            logger.info(f"Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
+        except Exception as e:
+            logger.warning(f"Could not retrieve default input device info: {e}")
+
         self.stream = self.p.open(
             format=pyaudio.paFloat32,
             channels=1,
@@ -68,6 +77,15 @@ class ClapDetector:
         finally:
             self._cleanup_audio()
 
+    def get_status(self):
+        """Returns current detection status for UI polling."""
+        return {
+            "peak": self.last_peak,
+            "threshold": self.threshold,
+            "state": self.state,
+            "clap_count": self.clap_count
+        }
+
     def listen_for_double_clap(self, callback=None, stop_event=None):
         """
         Listens continuously for two claps.
@@ -76,7 +94,7 @@ class ClapDetector:
         """
         self._initialize_audio()
 
-        clap_count = 0
+        self.clap_count = 0
         last_peak_time = -float("inf")
         filter_state = np.zeros((self.sos.shape[0], 2))
         start_time = time.time()
@@ -92,33 +110,45 @@ class ClapDetector:
                     time.sleep(0.1)
                     continue
                 frame = np.frombuffer(frame_data, dtype=np.float32)
-                frame = frame * self.window
 
                 # Apply bandpass filter
                 frame_filtered, filter_state = signal.sosfilt(self.sos, frame, zi=filter_state)
 
                 # Detect peaks
-                peaks, _ = signal.find_peaks(
-                    np.abs(frame_filtered), height=self.threshold
-                )
+                self.last_peak = np.max(np.abs(frame_filtered))
                 current_time = time.time() - start_time
 
-                if peaks.size > 0 and (current_time - last_peak_time) >= self.min_interval:
-                    if (current_time - last_peak_time) > self.max_interval:
-                        logger.info("First clap timed out. Starting count over.")
-                        clap_count = 1
+                if self.last_peak >= self.threshold:
+                    if (current_time - last_peak_time) >= self.min_interval:
+                        if (current_time - last_peak_time) > self.max_interval:
+                            if self.clap_count > 0:
+                                logger.info("First clap timed out. Starting count over.")
+                            self.clap_count = 1
+                        else:
+                            self.clap_count += 1
+
+                        logger.info(f"Clap detected! (Count: {self.clap_count}, Peak: {self.last_peak:.4f})")
+                        last_peak_time = current_time
+
+                        if self.clap_count == 2:
+                            logger.info("Double clap detected!")
+                            if callback:
+                                should_stop = callback()
+                                if should_stop:
+                                    break
+                            self.clap_count = 0 # Reset for next routine
+                            self.state = "IDLE"
+                        else:
+                            self.state = "WAITING"
                     else:
-                        clap_count += 1
+                        logger.debug(f"Peak {self.last_peak:.4f} ignored: within min_interval cooldown.")
 
-                    logger.info(f"Clap detected! (Count: {clap_count})")
-                    last_peak_time = current_time
+                # Update state for external polling
+                if self.clap_count == 0:
+                    self.state = "IDLE"
+                elif (current_time - last_peak_time) > self.max_interval:
+                    self.state = "IDLE"
+                    self.clap_count = 0
 
-                    if clap_count == 2:
-                        logger.info("Double clap detected!")
-                        if callback:
-                            should_stop = callback()
-                            if should_stop:
-                                break
-                        clap_count = 0 # Reset for next routine
         finally:
             self._cleanup_audio()

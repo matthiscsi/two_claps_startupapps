@@ -14,10 +14,13 @@ except ImportError:
 class SettingsUI:
     _instance = None
 
-    def __init__(self, config_manager, on_save_callback=None):
+    def __init__(self, config_manager, on_save_callback=None, detector=None):
         self.config_manager = config_manager
         self.on_save_callback = on_save_callback
+        self.detector = detector
         self.root = None
+        self.meter_canvas = None
+        self._monitoring = False
 
     def open(self):
         if SettingsUI._instance:
@@ -37,6 +40,7 @@ class SettingsUI:
 
             # Ensure instance is cleared when window is closed
             def on_closing():
+                self._monitoring = False
                 SettingsUI._instance = None
                 self.root.destroy()
 
@@ -81,9 +85,32 @@ class SettingsUI:
 
         # Device Selection (Simplified)
         if pyaudio:
-            ttk.Label(clap_frame, text="Note: Uses default system microphone.").grid(row=2, column=0, columnspan=2, padx=5, pady=5)
+            try:
+                p = pyaudio.PyAudio()
+                dev = p.get_default_input_device_info()
+                dev_name = dev.get('name', 'Default')
+                p.terminate()
+                device_text = f"Mic: {dev_name}"
+            except:
+                device_text = "Mic: Default system microphone"
+            ttk.Label(clap_frame, text=device_text, font=('', 8, 'italic')).grid(row=2, column=0, columnspan=2, padx=5, pady=2)
         else:
             ttk.Label(clap_frame, text="Note: PyAudio not detected. Detection may be limited.", foreground="red").grid(row=2, column=0, columnspan=2, padx=5, pady=5)
+
+        # Microphone Level Meter
+        meter_frame = ttk.Frame(clap_frame)
+        meter_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
+
+        ttk.Label(meter_frame, text="Mic Level:").pack(side='left', padx=5)
+        self.meter_canvas = tk.Canvas(meter_frame, width=200, height=20, bg='#222')
+        self.meter_canvas.pack(side='left', expand=True, fill='x', padx=5)
+
+        self.state_label = ttk.Label(meter_frame, text="IDLE", width=10)
+        self.state_label.pack(side='left', padx=5)
+
+        if self.detector:
+            self._monitoring = True
+            self.root.after(100, self._update_meter)
 
         # Audio Settings
         audio_frame = ttk.LabelFrame(tab, text="Audio / TTS")
@@ -194,6 +221,49 @@ class SettingsUI:
                 del items[idx]
 
         self._refresh_routine_list()
+
+    def _update_meter(self):
+        if not self._monitoring or not self.root or not self.detector:
+            return
+
+        try:
+            peak = getattr(self.detector, 'last_peak', 0.0)
+            threshold = self.threshold_var.get()
+            state = getattr(self.detector, 'state', 'IDLE')
+            clap_count = getattr(self.detector, 'clap_count', 0)
+
+            # Clear and redraw
+            self.meter_canvas.delete("all")
+
+            # Draw background level
+            width = self.meter_canvas.winfo_width()
+            level_width = min(width, int(peak * width))
+            color = "#00ff00" if peak < threshold else "#ffff00"
+            if peak > 0.8: color = "#ff0000"
+
+            self.meter_canvas.create_rectangle(0, 0, level_width, 20, fill=color, outline="")
+
+            # Draw threshold line
+            thresh_x = int(threshold * width)
+            self.meter_canvas.create_line(thresh_x, 0, thresh_x, 20, fill="white", width=2)
+
+            # Update state label
+            status_text = f"{state}"
+            if clap_count > 0:
+                status_text += f" ({clap_count})"
+            self.state_label.config(text=status_text)
+
+            # Flash if clap detected
+            if clap_count > 0:
+                 self.state_label.config(foreground="orange")
+            else:
+                 self.state_label.config(foreground="")
+
+        except Exception as e:
+            logger.debug(f"Meter update failed: {e}")
+
+        if self._monitoring:
+            self.root.after(50, self._update_meter)
 
     def _save_settings(self):
         try:
