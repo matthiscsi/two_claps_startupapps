@@ -121,5 +121,5 @@ def _validate_system_settings(settings):
     if not isinstance(settings, dict):
         raise ConfigValidationError("system settings must be a dictionary.")
 
-    if "run_on_startup" in settings and not isinstance(settings["run_on_startup"], bool):
-        raise ConfigValidationError("system.run_on_startup must be a boolean.")
+    if "run_on_startup" in settings and settings["run_on_startup"] is not None and not isinstance(settings["run_on_startup"], bool):
+        raise ConfigValidationError("system.run_on_startup must be a boolean or null.")
