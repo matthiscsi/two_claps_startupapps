@@ -2,7 +2,7 @@
 
 A polished Windows background utility that triggers a configurable startup routine upon detecting two claps. Optimized for productivity, it launches your essential apps, websites, and shortcuts, and positions them across your monitors exactly how you like them.
 
-## 🚀 Key Features
+## Key Features
 
 - **Reliable Clap Detection**: Optimized frequency-based detection (1.4kHz-1.8kHz) to minimize false positives.
 - **Configurable Startup Routines**: Define multiple routines (e.g., "morning", "work", "gaming") with apps, URLs, and shortcuts.
