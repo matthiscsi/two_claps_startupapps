@@ -50,7 +50,7 @@ from src.detector import ClapDetector
 from src.launcher import Launcher
 from src.audio import AudioEngine
 from src.ui import SettingsUI
-from src.startup_helper import is_startup_enabled, set_startup, get_startup_command
+from src.startup_helper import get_startup_state, apply_startup_state, get_startup_command
 
 class JarvisApp:
     def __init__(self, args):
@@ -82,7 +82,9 @@ class JarvisApp:
             try:
                 self.logger.info("START: Reconciling startup registration with configuration...")
                 intended_startup = self.config.system_settings.get("run_on_startup")
-                is_enabled, current_cmd = is_startup_enabled(return_command=True)
+                startup_state = get_startup_state()
+                is_enabled = startup_state["enabled"]
+                current_cmd = startup_state["command"]
                 expected_cmd = get_startup_command()
 
                 # Migration logic: if key is missing (None), infer from current system state
@@ -99,13 +101,13 @@ class JarvisApp:
                 if intended_startup:
                     if not is_enabled or current_cmd != expected_cmd:
                         self.logger.info(f"Startup out of sync (intended: {intended_startup}, enabled: {is_enabled}, path mismatch: {current_cmd != expected_cmd}). Re-registering...")
-                        set_startup(True)
+                        apply_startup_state(True)
                     else:
                         self.logger.info("Startup registration is correct and in sync.")
                 else:
                     if is_enabled:
                         self.logger.info("Startup is enabled in registry but disabled in config. De-registering...")
-                        set_startup(False)
+                        apply_startup_state(False)
                     else:
                         self.logger.info("Startup is correctly disabled.")
                 self.logger.info("SUCCESS: Startup reconciliation complete.")
@@ -126,22 +128,7 @@ class JarvisApp:
         except Exception as e:
             print(f"Error setting up logger from config: {e}")
 
-        # 3. Subsystem initialization
-        self.logger.info("START: Initializing subsystems...")
-
-        self.logger.info("START: Initializing Audio Engine...")
-        try:
-            self.audio = AudioEngine(self.config)
-            if self.audio and self.audio.initialized:
-                self.logger.info("SUCCESS: Audio Engine initialized.")
-            elif self.audio and not self.audio.enabled:
-                self.logger.info("SUCCESS: Audio Engine initialized (Disabled).")
-            else:
-                self.logger.warning("FAIL: Audio Engine initialization incomplete.")
-        except Exception as e:
-            self.logger.error(f"FAIL: Failed to initialize AudioEngine: {e}", exc_info=True)
-            self.audio = None
-
+        # 3. Subsystem initialization (critical only, keep startup fast)
         self.logger.info("START: Initializing Launcher...")
         try:
             self.launcher = Launcher(self.config, dry_run=args.dry_run)
@@ -150,13 +137,12 @@ class JarvisApp:
             self.logger.error(f"FAIL: Failed to initialize Launcher: {e}", exc_info=True)
             self.launcher = None
 
-        self.logger.info("START: Initializing Clap Detector...")
-        try:
-            self.detector = ClapDetector(self.config)
-            self.logger.info("SUCCESS: Clap Detector initialized.")
-        except Exception as e:
-            self.logger.error(f"FAIL: Failed to initialize ClapDetector: {e}", exc_info=True)
-            self.detector = None
+        # Non-critical systems are initialized after tray/UI become available.
+        self.audio = None
+        self.detector = None
+        self.runtime_ready_event = threading.Event()
+        self.start_time_monotonic = time.monotonic()
+        self.startup_delay_seconds = max(0.0, float(self.config.system_settings.get("startup_delay", 0.0)))
 
         self.routine_lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -164,6 +150,15 @@ class JarvisApp:
 
     def on_trigger_routine(self):
         def run():
+            elapsed = time.monotonic() - self.start_time_monotonic
+            remaining_startup_delay = self.startup_delay_seconds - elapsed
+            if remaining_startup_delay > 0:
+                self.logger.info(
+                    f"Routine trigger delayed for startup delay window. remaining={remaining_startup_delay:.2f}s"
+                )
+                # Delay only routine execution, never tray/UI initialization.
+                time.sleep(remaining_startup_delay)
+
             # Use non-blocking acquire to ignore duplicate triggers while routine is running
             if not self.routine_lock.acquire(blocking=False):
                 self.logger.warning("Routine already in progress. Ignoring trigger.")
@@ -192,6 +187,33 @@ class JarvisApp:
         if self.audio:
             self.audio.enabled = self.config.audio_settings.get('enabled', True)
             self.audio.maybe_initialize()
+        self.startup_delay_seconds = max(0.0, float(self.config.system_settings.get("startup_delay", 0.0)))
+
+    def _initialize_runtime_subsystems(self):
+        self.logger.info("START: Initializing deferred runtime subsystems (audio + clap detector)...")
+
+        self.logger.info("START: Initializing Audio Engine...")
+        try:
+            self.audio = AudioEngine(self.config)
+            if self.audio and self.audio.initialized:
+                self.logger.info("SUCCESS: Audio Engine initialized.")
+            elif self.audio and not self.audio.enabled:
+                self.logger.info("SUCCESS: Audio Engine initialized (Disabled).")
+            else:
+                self.logger.warning("FAIL: Audio Engine initialization incomplete.")
+        except Exception as e:
+            self.logger.error(f"FAIL: Failed to initialize AudioEngine: {e}", exc_info=True)
+            self.audio = None
+
+        self.logger.info("START: Initializing Clap Detector...")
+        try:
+            self.detector = ClapDetector(self.config)
+            self.logger.info("SUCCESS: Clap Detector initialized.")
+        except Exception as e:
+            self.logger.error(f"FAIL: Failed to initialize ClapDetector: {e}", exc_info=True)
+            self.detector = None
+        finally:
+            self.runtime_ready_event.set()
 
     def create_tray_icon(self):
         self.logger.info("START: Creating Tray Icon...")
@@ -249,6 +271,8 @@ class JarvisApp:
 
         if self.args.calibrate:
             if not self.detector:
+                self._initialize_runtime_subsystems()
+            if not self.detector:
                 self.logger.error("Detector not initialized. Cannot run calibration.")
                 return
             self.logger.info("ENTERING CALIBRATION MODE. Press Ctrl+C to exit.")
@@ -277,6 +301,9 @@ class JarvisApp:
         if not self.args.minimized and not self.args.calibrate and not self.args.no_tray:
             self.show_settings()
 
+        # Defer non-critical startup work until tray/UI are already available.
+        threading.Thread(target=self._initialize_runtime_subsystems, daemon=True).start()
+
         def signal_handler(sig, frame):
             self.shutdown()
             sys.exit(0)
@@ -289,6 +316,7 @@ class JarvisApp:
             self.logger.info("RUNNING IN DRY-RUN MODE")
 
         try:
+            self.runtime_ready_event.wait()
             if self.detector:
                 try:
                     self.detector.listen_for_double_clap(

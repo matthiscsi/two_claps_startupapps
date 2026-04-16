@@ -81,6 +81,19 @@ def is_startup_enabled(return_command=False):
         logger.debug(f"Non-critical: Failed to check startup registry: {e}")
         return (False, None) if return_command else False
 
+def get_startup_state():
+    """
+    Returns canonical startup state from the OS registry as:
+    {
+      "enabled": bool,
+      "command": str|None
+    }
+    """
+    enabled, command = is_startup_enabled(return_command=True)
+    state = {"enabled": bool(enabled), "command": command}
+    logger.info(f"Startup state read from system: enabled={state['enabled']}, command={state['command']}")
+    return state
+
 def set_startup(enabled):
     """Adds or removes the app from the Windows startup registry."""
     if sys.platform != "win32" or winreg is None:
@@ -113,6 +126,24 @@ def set_startup(enabled):
     except Exception as e:
         logger.error(f"Failed to update startup registry: {e}")
         return False
+
+def apply_startup_state(enabled):
+    """
+    Apply desired startup state, verify it from the registry, and return:
+    (operation_success, actual_state_dict)
+    """
+    logger.info(f"Startup toggle requested: enabled={enabled}")
+    op_ok = set_startup(enabled)
+    actual_state = get_startup_state()
+    verified = actual_state["enabled"] == bool(enabled)
+    if op_ok and verified:
+        logger.info(f"Startup toggle verified successfully: enabled={actual_state['enabled']}")
+        return True, actual_state
+
+    logger.error(
+        f"Startup toggle verification failed. requested={enabled}, op_ok={op_ok}, actual={actual_state['enabled']}"
+    )
+    return False, actual_state
 
 def _cleanup_legacy_shortcut():
     """Removes the old .lnk file from the Startup folder if it exists."""

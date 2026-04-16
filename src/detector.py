@@ -2,6 +2,7 @@ import time
 import numpy as np
 from scipy import signal
 import logging
+from collections import deque
 from src.audio_lock import PYAUDIO_LOCK
 
 try:
@@ -32,6 +33,40 @@ class ClapDetector:
         self.last_peak = 0.0
         self.clap_count = 0
         self.state = "IDLE"
+        self.recent_peaks = deque(maxlen=8)
+        self.max_transient_duration_sec = self.settings.get("max_transient_duration", 0.012)
+        self.crest_factor_min = self.settings.get("crest_factor_min", 4.0)
+        self.sustained_peak_ratio = self.settings.get("sustained_peak_ratio", 0.60)
+        self.max_sustained_frames = int(self.settings.get("max_sustained_frames", 3))
+
+    def _is_transient_clap(self, frame_filtered):
+        """
+        Lightweight clap classifier based on transient behavior:
+        - high instantaneous peak
+        - short above-threshold duration
+        - high crest factor (spiky, not sustained)
+        - reject sustained high-energy frames (voice, barking, etc.)
+        """
+        peak = float(np.max(np.abs(frame_filtered)))
+        if peak < self.threshold:
+            return False, "below_threshold"
+
+        rms = float(np.sqrt(np.mean(frame_filtered ** 2)) + 1e-9)
+        crest_factor = peak / rms
+        if crest_factor < self.crest_factor_min:
+            return False, f"low_crest_factor({crest_factor:.2f})"
+
+        above_rel = np.abs(frame_filtered) > (peak * 0.35)
+        active_samples = int(np.count_nonzero(above_rel))
+        active_duration = active_samples / float(self.sampling_rate)
+        if active_duration > self.max_transient_duration_sec:
+            return False, f"too_long({active_duration:.4f}s)"
+
+        high_frames = sum(1 for p in self.recent_peaks if p >= (self.threshold * self.sustained_peak_ratio))
+        if high_frames >= self.max_sustained_frames:
+            return False, f"sustained_energy({high_frames}frames)"
+
+        return True, "ok"
 
     def _initialize_audio(self):
         logger.info("START: Initializing audio input for clap detection...")
@@ -159,9 +194,11 @@ class ClapDetector:
 
                 # Detect peaks
                 self.last_peak = np.max(np.abs(frame_filtered))
+                self.recent_peaks.append(self.last_peak)
                 current_time = time.time() - start_time
 
-                if self.last_peak >= self.threshold:
+                clap_like, reason = self._is_transient_clap(frame_filtered)
+                if clap_like:
                     if (current_time - last_peak_time) >= self.min_interval:
                         if (current_time - last_peak_time) > self.max_interval:
                             if self.clap_count > 0:
@@ -185,6 +222,9 @@ class ClapDetector:
                             self.state = "WAITING"
                     else:
                         logger.debug(f"Peak {self.last_peak:.4f} ignored: within min_interval cooldown.")
+                elif self.last_peak >= self.threshold:
+                    self.state = "REJECTED"
+                    logger.debug(f"Rejected non-clap transient candidate. peak={self.last_peak:.4f}, reason={reason}")
 
                 # Update state for external polling
                 if self.clap_count == 0:

@@ -123,3 +123,7 @@ def _validate_system_settings(settings):
 
     if "run_on_startup" in settings and settings["run_on_startup"] is not None and not isinstance(settings["run_on_startup"], bool):
         raise ConfigValidationError("system.run_on_startup must be a boolean or null.")
+    if "startup_delay" in settings:
+        delay = settings["startup_delay"]
+        if not isinstance(delay, (int, float)) or delay < 0:
+            raise ConfigValidationError("system.startup_delay must be a non-negative number.")

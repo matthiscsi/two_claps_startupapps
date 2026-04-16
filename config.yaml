@@ -15,6 +15,9 @@ clap_settings:
 logging:
   file: launcher.log
   level: INFO
+system:
+  run_on_startup: null
+  startup_delay: 0.0
 routines:
   morning_routine:
     items:
