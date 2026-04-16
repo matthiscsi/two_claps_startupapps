@@ -50,6 +50,7 @@ from src.detector import ClapDetector
 from src.launcher import Launcher
 from src.audio import AudioEngine
 from src.ui import SettingsUI
+from src.startup_helper import is_startup_enabled, set_startup, get_startup_command
 
 class JarvisApp:
     def __init__(self, args):
@@ -75,6 +76,30 @@ class JarvisApp:
             self.logger.error(f"FAIL: Critical failure loading config: {e}", exc_info=True)
             # Fallback to default config if possible
             self.config = Config(None)
+
+        # Reconcile startup state with config
+        if sys.platform == "win32":
+            try:
+                self.logger.info("START: Reconciling startup registration with configuration...")
+                intended_startup = self.config.system_settings.get("run_on_startup", False)
+                is_enabled, current_cmd = is_startup_enabled(return_command=True)
+                expected_cmd = get_startup_command()
+
+                if intended_startup:
+                    if not is_enabled or current_cmd != expected_cmd:
+                        self.logger.info(f"Startup out of sync (intended: {intended_startup}, enabled: {is_enabled}, path mismatch: {current_cmd != expected_cmd}). Re-registering...")
+                        set_startup(True)
+                    else:
+                        self.logger.info("Startup registration is correct and in sync.")
+                else:
+                    if is_enabled:
+                        self.logger.info("Startup is enabled in registry but disabled in config. De-registering...")
+                        set_startup(False)
+                    else:
+                        self.logger.info("Startup is correctly disabled.")
+                self.logger.info("SUCCESS: Startup reconciliation complete.")
+            except Exception as e:
+                self.logger.error(f"FAIL: Error during startup reconciliation: {e}")
 
         if args.no_audio:
             self.config.data["audio_settings"]["enabled"] = False

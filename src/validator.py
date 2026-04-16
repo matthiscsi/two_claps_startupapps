@@ -18,6 +18,7 @@ def validate_config(data):
     _validate_clap_settings(data.get("clap_settings"))
     _validate_routines(data.get("routines"))
     _validate_audio_settings(data.get("audio_settings"))
+    _validate_system_settings(data.get("system"))
 
 def _validate_clap_settings(settings):
     if settings is None:
@@ -113,3 +114,12 @@ def _validate_audio_settings(settings):
             logger.warning("Audio mode is 'file' but no file_path is provided.")
         elif not os.path.exists(file_path):
             logger.warning(f"Audio file not found: {file_path}")
+
+def _validate_system_settings(settings):
+    if settings is None:
+        return
+    if not isinstance(settings, dict):
+        raise ConfigValidationError("system settings must be a dictionary.")
+
+    if "run_on_startup" in settings and not isinstance(settings["run_on_startup"], bool):
+        raise ConfigValidationError("system.run_on_startup must be a boolean.")

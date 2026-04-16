@@ -65,6 +65,9 @@ DEFAULT_CONFIG = {
         "startup_phrase": "Good morning, Boss. Initializing systems.",
         "success_phrase": "Systems online. Have a productive day."
     },
+    "system": {
+        "run_on_startup": False
+    },
     "logging": {
         "level": "INFO",
         "file": "launcher.log"
@@ -159,3 +162,7 @@ class Config:
     @property
     def audio_settings(self):
         return self.data["audio_settings"]
+
+    @property
+    def system_settings(self):
+        return self.data.get("system", {"run_on_startup": False})
