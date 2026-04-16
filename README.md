@@ -1,4 +1,4 @@
-# 👏 Jarvis Double-Clap Launcher
+# Jarvis Double-Clap Launcher
 
 A polished Windows background utility that triggers a configurable startup routine upon detecting two claps. Optimized for productivity, it launches your essential apps, websites, and shortcuts, and positions them across your monitors exactly how you like them.
 
