@@ -7,7 +7,7 @@ import os
 import re
 from screeninfo import get_monitors
 from src.config import get_resource_path
-from src.startup_helper import is_startup_enabled, set_startup
+from src.startup_helper import get_startup_state, apply_startup_state
 from src.logger import get_log_dir
 from src.audio_lock import PYAUDIO_LOCK
 
@@ -234,9 +234,9 @@ class SettingsUI:
         system_frame.pack(fill='x', padx=10, pady=5)
 
         if sys.platform == "win32":
-            actual_state = is_startup_enabled()
-            logger.info(f"Initializing startup checkbox. Actual system state: {actual_state}")
-            self.startup_var = tk.BooleanVar(value=actual_state)
+            startup_state = get_startup_state()
+            logger.info(f"Initializing startup checkbox from system state: {startup_state}")
+            self.startup_var = tk.BooleanVar(value=startup_state["enabled"])
 
             def on_startup_toggle(*args):
                 logger.info(f"Startup checkbox toggled by user: {self.startup_var.get()}")
@@ -244,6 +244,10 @@ class SettingsUI:
             self.startup_var.trace_add("write", on_startup_toggle)
 
             ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(anchor='w', padx=5, pady=5)
+
+        self.startup_delay_var = tk.DoubleVar(value=self.config_manager.system_settings.get('startup_delay', 0.0))
+        ttk.Label(system_frame, text="Startup delay (seconds):").pack(anchor='w', padx=5, pady=(5, 0))
+        ttk.Entry(system_frame, textvariable=self.startup_delay_var).pack(anchor='w', padx=5, pady=(0, 5))
 
         # Logs Folder
         def open_logs():
@@ -673,16 +677,21 @@ class SettingsUI:
             self.config_manager.data['audio_settings']['mode'] = self.audio_mode_var.get()
             self.config_manager.data['audio_settings']['file_path'] = self.audio_file_var.get()
             self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
+            self.config_manager.data.setdefault('system', {})
+            self.config_manager.data['system']['startup_delay'] = max(0.0, float(self.startup_delay_var.get()))
 
             # Update startup setting
             if sys.platform == "win32" and hasattr(self, 'startup_var'):
                 new_startup_state = self.startup_var.get()
-                logger.info(f"Saving startup setting: {new_startup_state}")
-                set_startup(new_startup_state)
-                # Also persist to config so we have a 'record of intent'
-                if 'system' not in self.config_manager.data:
-                    self.config_manager.data['system'] = {}
-                self.config_manager.data['system']['run_on_startup'] = new_startup_state
+                logger.info(f"Saving startup setting from UI toggle: requested={new_startup_state}")
+                success, actual_state = apply_startup_state(new_startup_state)
+                self.config_manager.data['system']['run_on_startup'] = actual_state["enabled"]
+                self.startup_var.set(actual_state["enabled"])
+
+                if not success:
+                    raise RuntimeError(
+                        f"Failed to set startup to {new_startup_state}. Actual system state is {actual_state['enabled']}."
+                    )
 
             self.config_manager.save()
             logger.info("Settings saved to config file.")

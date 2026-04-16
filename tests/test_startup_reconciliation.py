@@ -33,9 +33,9 @@ def test_startup_migration_missing_key_enabled_registry(mock_args, clean_config)
     Then: registry entry is NOT removed and config is updated to True
     """
     with patch("src.main.sys.platform", "win32"), \
-         patch("src.main.is_startup_enabled", return_value=(True, "some_cmd")), \
+         patch("src.main.get_startup_state", return_value={"enabled": True, "command": "some_cmd"}), \
          patch("src.main.get_startup_command", return_value="some_cmd"), \
-         patch("src.main.set_startup") as mock_set_startup:
+         patch("src.main.apply_startup_state") as mock_set_startup:
 
         # Create a config that is missing the system key or has run_on_startup: null
         with open("test_config.yaml", "w") as f:
@@ -57,9 +57,9 @@ def test_startup_migration_missing_key_disabled_registry(mock_args, clean_config
     Then: registry remains disabled and config is updated to False
     """
     with patch("src.main.sys.platform", "win32"), \
-         patch("src.main.is_startup_enabled", return_value=(False, None)), \
+         patch("src.main.get_startup_state", return_value={"enabled": False, "command": None}), \
          patch("src.main.get_startup_command", return_value="some_cmd"), \
-         patch("src.main.set_startup") as mock_set_startup:
+         patch("src.main.apply_startup_state") as mock_set_startup:
 
         with open("test_config.yaml", "w") as f:
             f.write("system: {}\n")
@@ -78,9 +78,9 @@ def test_startup_explicit_override_true(mock_args, clean_config):
     Then: registry entry is created
     """
     with patch("src.main.sys.platform", "win32"), \
-         patch("src.main.is_startup_enabled", return_value=(False, None)), \
+         patch("src.main.get_startup_state", return_value={"enabled": False, "command": None}), \
          patch("src.main.get_startup_command", return_value="expected_cmd"), \
-         patch("src.main.set_startup") as mock_set_startup:
+         patch("src.main.apply_startup_state") as mock_set_startup:
 
         with open("test_config.yaml", "w") as f:
             f.write("system:\n  run_on_startup: true\n")
@@ -98,9 +98,9 @@ def test_startup_explicit_override_false(mock_args, clean_config):
     Then: registry entry is removed
     """
     with patch("src.main.sys.platform", "win32"), \
-         patch("src.main.is_startup_enabled", return_value=(True, "some_cmd")), \
+         patch("src.main.get_startup_state", return_value={"enabled": True, "command": "some_cmd"}), \
          patch("src.main.get_startup_command", return_value="some_cmd"), \
-         patch("src.main.set_startup") as mock_set_startup:
+         patch("src.main.apply_startup_state") as mock_set_startup:
 
         with open("test_config.yaml", "w") as f:
             f.write("system:\n  run_on_startup: false\n")
