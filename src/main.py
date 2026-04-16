@@ -81,9 +81,20 @@ class JarvisApp:
         if sys.platform == "win32":
             try:
                 self.logger.info("START: Reconciling startup registration with configuration...")
-                intended_startup = self.config.system_settings.get("run_on_startup", False)
+                intended_startup = self.config.system_settings.get("run_on_startup")
                 is_enabled, current_cmd = is_startup_enabled(return_command=True)
                 expected_cmd = get_startup_command()
+
+                # Migration logic: if key is missing (None), infer from current system state
+                if intended_startup is None:
+                    self.logger.info(f"Startup setting 'run_on_startup' is missing in config. Inferring from system state: {is_enabled}")
+                    intended_startup = is_enabled
+                    # Persist inferred value back to config
+                    if 'system' not in self.config.data:
+                        self.config.data['system'] = {}
+                    self.config.data['system']['run_on_startup'] = intended_startup
+                    self.config.save()
+                    self.logger.info(f"Migrated missing 'run_on_startup' to: {intended_startup}")
 
                 if intended_startup:
                     if not is_enabled or current_cmd != expected_cmd:

@@ -66,7 +66,7 @@ DEFAULT_CONFIG = {
         "success_phrase": "Systems online. Have a productive day."
     },
     "system": {
-        "run_on_startup": False
+        "run_on_startup": None
     },
     "logging": {
         "level": "INFO",
@@ -165,4 +165,4 @@ class Config:
 
     @property
     def system_settings(self):
-        return self.data.get("system", {"run_on_startup": False})
+        return self.data.get("system", {"run_on_startup": None})
