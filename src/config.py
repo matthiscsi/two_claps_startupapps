@@ -107,9 +107,15 @@ class Config:
     def load(self):
         logger.info(f"START: Loading config from {self.config_path}")
         try:
-            with open(self.config_path, "r") as f:
+            with open(self.config_path, "r", encoding="utf-8") as f:
                 user_config = yaml.safe_load(f)
                 if user_config:
+                    if not isinstance(user_config, dict):
+                        logger.warning(
+                            "FAIL: Root config content must be a dictionary. "
+                            "Using defaults for this session."
+                        )
+                        return
                     self._migrate_config(user_config)
                     # Basic deep merge (one level for simplicity)
                     for key, value in user_config.items():
@@ -146,8 +152,8 @@ class Config:
                     config["routines"][name] = {"items": items}
 
     def save(self):
-        with open(self.config_path, "w") as f:
-            yaml.dump(self.data, f, default_flow_style=False)
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            yaml.dump(self.data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     def get(self, key, default=None):
         return self.data.get(key, default)

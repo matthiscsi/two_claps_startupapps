@@ -36,3 +36,18 @@ def test_config_deep_copy_regression():
 
     if os.path.exists("config1.yaml"): os.remove("config1.yaml")
     if os.path.exists("config2.yaml"): os.remove("config2.yaml")
+
+def test_config_invalid_root_type_falls_back_to_defaults(tmp_path):
+    config_file = tmp_path / "invalid_root.yaml"
+    config_file.write_text("- not\n- a\n- dict\n", encoding="utf-8")
+
+    config = Config(str(config_file))
+    assert config.clap_settings["threshold"] == 0.15
+
+def test_config_save_preserves_top_level_order(tmp_path):
+    config_file = tmp_path / "ordered_config.yaml"
+    config = Config(str(config_file))
+    config.save()
+
+    content = config_file.read_text(encoding="utf-8")
+    assert content.index("clap_settings:") < content.index("routines:")
