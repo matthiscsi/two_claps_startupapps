@@ -107,24 +107,27 @@ class Config:
     def load(self):
         logger.info(f"START: Loading config from {self.config_path}")
         try:
-            with open(self.config_path, "r") as f:
+            with open(self.config_path, "r", encoding="utf-8") as f:
                 user_config = yaml.safe_load(f)
-                if user_config:
-                    self._migrate_config(user_config)
-                    # Basic deep merge (one level for simplicity)
-                    for key, value in user_config.items():
-                        if isinstance(value, dict) and key in self.data:
-                            self.data[key].update(value)
-                        else:
-                            self.data[key] = value
+                if user_config is None:
+                    logger.warning("Config file is empty. Using defaults.")
+                    return
+                if not isinstance(user_config, dict):
+                    raise ConfigValidationError("Root config must be a dictionary.")
 
-                    # Validate after loading and merging
-                    try:
-                        validate_config(self.data)
-                        logger.info("SUCCESS: Config validated.")
-                    except ConfigValidationError as e:
-                        logger.warning(f"FAIL: Config validation warning: {e}. Some settings may be reset to defaults.")
+                self._migrate_config(user_config)
+                merged = self._deep_merge(copy.deepcopy(self.data), user_config)
+                validate_config(merged)
+                self.data = merged
+                logger.info("SUCCESS: Config validated.")
             logger.info(f"SUCCESS: Loaded config from {self.config_path}")
+        except (yaml.YAMLError, ConfigValidationError) as e:
+            logger.error(
+                "FAIL: Invalid config '%s': %s. Falling back to defaults. "
+                "Tip: open Settings and save to regenerate a safe config.",
+                self.config_path,
+                e,
+            )
         except Exception as e:
             logger.error(f"FAIL: Error loading config '{self.config_path}': {e}. Using defaults.")
 
@@ -146,7 +149,7 @@ class Config:
                     config["routines"][name] = {"items": items}
 
     def save(self):
-        with open(self.config_path, "w") as f:
+        with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(self.data, f, default_flow_style=False)
 
     def get(self, key, default=None):
@@ -167,3 +170,11 @@ class Config:
     @property
     def system_settings(self):
         return self.data.get("system", {"run_on_startup": None, "startup_delay": 0.0})
+
+    def _deep_merge(self, base, update):
+        for key, value in update.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                base[key] = self._deep_merge(base[key], value)
+            else:
+                base[key] = value
+        return base

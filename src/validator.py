@@ -1,17 +1,21 @@
 import logging
-import re
 import os
+import re
 
 logger = logging.getLogger(__name__)
+
 
 class ConfigValidationError(Exception):
     pass
 
+
+VALID_ITEM_TYPES = {"app", "url", "shortcut"}
+VALID_MONITOR_ALIASES = {"primary", "secondary"}
+VALID_POSITIONS = {"full", "left", "right", "top", "bottom"}
+
+
 def validate_config(data):
-    """
-    Validate the configuration data.
-    Raises ConfigValidationError if any issues are found.
-    """
+    """Validate full config structure and value ranges."""
     if not isinstance(data, dict):
         raise ConfigValidationError("Config must be a dictionary.")
 
@@ -20,17 +24,29 @@ def validate_config(data):
     _validate_audio_settings(data.get("audio_settings"))
     _validate_system_settings(data.get("system"))
 
+
 def _validate_clap_settings(settings):
     if settings is None:
         return
     if not isinstance(settings, dict):
         raise ConfigValidationError("clap_settings must be a dictionary.")
 
-    # Optional: validate specific fields
-    if "threshold" in settings and not isinstance(settings["threshold"], (int, float)):
-        raise ConfigValidationError("clap_settings.threshold must be a number.")
-    if "min_interval" in settings and (not isinstance(settings["min_interval"], (int, float)) or settings["min_interval"] < 0):
-        raise ConfigValidationError("clap_settings.min_interval must be a non-negative number.")
+    _require_number(settings, "threshold", min_value=0.0, max_value=1.0, context="clap_settings")
+    _require_number(settings, "min_interval", min_value=0.0, max_value=5.0, context="clap_settings")
+    _require_number(settings, "max_interval", min_value=0.1, max_value=10.0, context="clap_settings")
+    _require_number(settings, "frame_duration", min_value=0.005, max_value=0.2, context="clap_settings")
+    _require_number(
+        settings, "sampling_rate", min_value=8000, max_value=192000, context="clap_settings", integer=True
+    )
+    _require_number(settings, "filter_low", min_value=20, max_value=10000, context="clap_settings")
+    _require_number(settings, "filter_high", min_value=20, max_value=20000, context="clap_settings")
+
+    filter_low = settings.get("filter_low")
+    filter_high = settings.get("filter_high")
+    if isinstance(filter_low, (int, float)) and isinstance(filter_high, (int, float)):
+        if filter_low >= filter_high:
+            raise ConfigValidationError("clap_settings.filter_low must be lower than clap_settings.filter_high.")
+
 
 def _validate_routines(routines):
     if routines is None:
@@ -51,6 +67,7 @@ def _validate_routines(routines):
         for i, item in enumerate(items):
             _validate_item(item, f"routines.{name}.items[{i}]")
 
+
 def _validate_item(item, context):
     if not isinstance(item, dict):
         raise ConfigValidationError(f"Item at {context} must be a dictionary.")
@@ -67,35 +84,44 @@ def _validate_item(item, context):
     if not name or not isinstance(name, str):
         raise ConfigValidationError(f"Item at {context} has an invalid name.")
 
-    valid_types = ["app", "url", "shortcut"]
-    if item_type not in valid_types:
-        raise ConfigValidationError(f"Item '{name}' at {context} has unsupported type '{item_type}'. Valid types are: {', '.join(valid_types)}")
+    if item_type not in VALID_ITEM_TYPES:
+        raise ConfigValidationError(
+            f"Item '{name}' at {context} has unsupported type '{item_type}'. "
+            f"Valid types are: {', '.join(sorted(VALID_ITEM_TYPES))}"
+        )
 
     if not target or not isinstance(target, str):
         raise ConfigValidationError(f"Item '{name}' at {context} has an invalid target.")
 
-    if item_type == "url":
-        # Simple URL validation
-        if not re.match(r'^https?://', target):
-            logger.warning(f"Item '{name}' target '{target}' does not look like a valid URL (should start with http:// or https://).")
+    if item_type == "url" and not re.match(r"^https?://", target):
+        logger.warning(
+            "Item '%s' target '%s' does not look like a valid URL (should start with http:// or https://).",
+            name,
+            target,
+        )
 
-    # Monitor validation
     monitor = item.get("monitor", 0)
     if not isinstance(monitor, (int, str)):
-         raise ConfigValidationError(f"Item '{name}' has invalid monitor '{monitor}'. Must be an integer or 'primary'/'secondary'.")
-    if isinstance(monitor, str) and monitor not in ["primary", "secondary"]:
-         raise ConfigValidationError(f"Item '{name}' has invalid monitor alias '{monitor}'. Valid aliases are: primary, secondary")
+        raise ConfigValidationError(
+            f"Item '{name}' has invalid monitor '{monitor}'. Must be an integer or 'primary'/'secondary'."
+        )
+    if isinstance(monitor, str) and monitor not in VALID_MONITOR_ALIASES:
+        raise ConfigValidationError(
+            f"Item '{name}' has invalid monitor alias '{monitor}'. "
+            f"Valid aliases are: {', '.join(sorted(VALID_MONITOR_ALIASES))}"
+        )
 
-    # Position validation
     position = item.get("position", "full")
-    valid_positions = ["full", "left", "right", "top", "bottom"]
-    if position not in valid_positions:
-        raise ConfigValidationError(f"Item '{name}' has invalid position '{position}'. Valid positions are: {', '.join(valid_positions)}")
+    if position not in VALID_POSITIONS:
+        raise ConfigValidationError(
+            f"Item '{name}' has invalid position '{position}'. "
+            f"Valid positions are: {', '.join(sorted(VALID_POSITIONS))}"
+        )
 
-    # Delay validation
     delay = item.get("delay", 0)
     if not isinstance(delay, (int, float)) or delay < 0:
         raise ConfigValidationError(f"Item '{name}' has invalid delay '{delay}'. Must be a non-negative number.")
+
 
 def _validate_audio_settings(settings):
     if settings is None:
@@ -113,7 +139,8 @@ def _validate_audio_settings(settings):
         if not file_path:
             logger.warning("Audio mode is 'file' but no file_path is provided.")
         elif not os.path.exists(file_path):
-            logger.warning(f"Audio file not found: {file_path}")
+            logger.warning("Audio file not found: %s", file_path)
+
 
 def _validate_system_settings(settings):
     if settings is None:
@@ -121,9 +148,23 @@ def _validate_system_settings(settings):
     if not isinstance(settings, dict):
         raise ConfigValidationError("system settings must be a dictionary.")
 
-    if "run_on_startup" in settings and settings["run_on_startup"] is not None and not isinstance(settings["run_on_startup"], bool):
+    if "run_on_startup" in settings and settings["run_on_startup"] is not None and not isinstance(
+        settings["run_on_startup"], bool
+    ):
         raise ConfigValidationError("system.run_on_startup must be a boolean or null.")
     if "startup_delay" in settings:
         delay = settings["startup_delay"]
         if not isinstance(delay, (int, float)) or delay < 0:
             raise ConfigValidationError("system.startup_delay must be a non-negative number.")
+
+
+def _require_number(settings, key, min_value, max_value, context, integer=False):
+    if key not in settings:
+        return
+    value = settings[key]
+    expected_types = (int,) if integer else (int, float)
+    if not isinstance(value, expected_types):
+        expected = "an integer" if integer else "a number"
+        raise ConfigValidationError(f"{context}.{key} must be {expected}.")
+    if value < min_value or value > max_value:
+        raise ConfigValidationError(f"{context}.{key} must be between {min_value} and {max_value}. Got: {value}")

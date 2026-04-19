@@ -1,109 +1,130 @@
 # Jarvis Double-Clap Launcher
 
-A polished Windows background utility that triggers a configurable startup routine upon detecting two claps. Optimized for productivity, it launches your essential apps, websites, and shortcuts, and positions them across your monitors exactly how you like them.
+Jarvis is a Windows-first background utility that listens for a double clap and launches a named startup routine (apps, URLs, and shortcuts), then positions windows across monitors.
 
-## Key Features
+## What It Does
 
-- **Reliable Clap Detection**: Optimized frequency-based detection (1.4kHz-1.8kHz) to minimize false positives.
-- **Configurable Startup Routines**: Define multiple routines (e.g., "morning", "work", "gaming") with apps, URLs, and shortcuts.
-- **Visual Routine Management**: Easily add, edit, or reorder routine items using a drag-and-drop interface in the Settings UI.
-- **Multi-Monitor Support**: Target specific monitors by index or using friendly aliases like `primary` and `secondary`.
-- **Flexible Positioning**: Best-effort window placement with support for `full` screen, `left`, `right`, `top`, or `bottom` splitting.
-- **Smart Launching**: Detects if an app is already running and repositions it instead of launching a new instance.
-- **Robust Validation**: Fail-fast configuration loading with clear, actionable error messages.
-- **System Tray Integration**: Runs quietly in the background with manual trigger and settings access.
-- **Jarvis Feedback**: Optional Text-to-Speech (TTS) greetings and status updates.
+- Detects clap-like transients and triggers on two valid claps.
+- Runs configurable routines from `config.yaml`.
+- Reuses already-running apps when possible instead of relaunching.
+- Supports monitor targeting (`primary`, `secondary`, or index) and window positions (`full`, `left`, `right`, `top`, `bottom`).
+- Runs from system tray with manual trigger, settings, and graceful quit.
 
-## 🛠️ Configuration (`config.yaml`)
+## Quick Start (Windows)
 
-The launcher is powered by a `config.yaml` file. You can manage your routines and settings via the **Settings** menu in the system tray, which provides a visual interface for all options including drag-and-drop reordering of startup items.
+1. Install Python 3.10+.
+2. Install dependencies:
 
-### Example Configuration
+```bash
+pip install -r requirements.txt
+```
+
+3. Run:
+
+```bash
+python -m src.main
+```
+
+4. Open tray icon -> `Settings...` and tune microphone threshold if needed.
+
+## First-Run Tips
+
+- Start with a quiet room and clap once or twice to verify meter movement.
+- If false positives happen, raise `clap_settings.threshold`.
+- If double-clap feels too strict, lower `clap_settings.min_interval` slightly or increase `clap_settings.max_interval`.
+- Keep routine item names close to real window titles for better repositioning.
+
+## Configuration
+
+Jarvis reads `config.yaml`. Invalid config now falls back safely to defaults and logs actionable errors.
+
+### Example
 
 ```yaml
+clap_settings:
+  threshold: 0.15
+  min_interval: 0.2
+  max_interval: 2.0
+  filter_low: 1400
+  filter_high: 1800
+  frame_duration: 0.02
+  sampling_rate: 44100
+
+system:
+  run_on_startup: true
+  startup_delay: 0.0
+
 routines:
   morning_routine:
     items:
-      - name: "Browser"
+      - name: "News"
         type: "url"
-        target: "https://news.google.com"
+        target: "https://www.hln.be/"
         monitor: "primary"
         position: "full"
-      - name: "Slack"
+      - name: "Discord"
         type: "app"
-        target: "C:/Users/User/AppData/Local/slack/slack.exe"
+        target: "discord"
         monitor: "secondary"
         position: "left"
-      - name: "Spotify"
-        type: "app"
-        target: "spotify"
-        monitor: "secondary"
-        position: "right"
         delay: 2
+        window_wait_timeout: 20
 ```
 
-### Routine Item Options
+### Routine Item Fields
 
-| Field | Description | Required |
-|-------|-------------|----------|
-| `name` | Friendly name of the item. Used for window matching. | Yes |
-| `type` | `app`, `url`, or `shortcut`. | Yes |
-| `target`| Path to executable, URL, or .lnk file. | Yes |
-| `monitor`| Monitor index (0, 1) or `primary`/`secondary`. Default: 0 | No |
-| `position`| `full`, `left`, or `right`. Default: `full` | No |
-| `delay` | Seconds to wait before launching/positioning. Default: 0 | No |
-| `window_title_match` | Optional substring to match the window title if `name` is insufficient. | No |
+- `name` (required): Display name and window matching hint.
+- `type` (required): `app`, `url`, `shortcut`.
+- `target` (required): Executable path/command, URL, or `.lnk`.
+- `monitor`: Monitor index or `primary`/`secondary`.
+- `position`: `full`, `left`, `right`, `top`, `bottom`.
+- `delay`: Delay before launch.
+- `window_title_match`: Optional title substring override.
+- `window_wait_timeout`: Optional seconds to wait for window before positioning timeout.
+- `window_poll_interval`: Optional polling interval when waiting for window.
 
-## 💻 Setup & Usage
+## CLI
 
-### Prerequisites
-- Windows OS (recommended for window management features)
-- Python 3.10+ (if running from source)
+```bash
+python -m src.main --help
+```
 
-### Installation
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Run the application:
-   ```bash
-   python -m src.main
-   ```
+Main flags:
+- `--routine <name>`
+- `--dry-run`
+- `--calibrate`
+- `--no-audio`
+- `--no-tray`
+- `--minimized`
 
-### Command Line Arguments
-- `--dry-run`: Log actions without actually launching or moving windows.
-- `--calibrate`: Enter calibration mode to tune microphone sensitivity.
-- `--no-audio`: Disable TTS feedback.
-- `--routine <name>`: Specify which routine to run on claps (default: `morning_routine`).
+## Build Windows Executable
 
-## 📦 Building the Executable
-
-To bundle Jarvis Launcher into a standalone Windows `.exe`:
 ```bash
 python build_exe.py
 ```
-The output will be in the `dist/` directory.
 
-## 🤖 CI / Build Pipeline
+Output: `dist/JarvisLauncher.exe`
 
-This repository uses GitHub Actions for continuous integration and automated builds:
+## Testing
 
-- **CI (`ci.yml`)**: Runs automatically on every push or pull request to `main`. It installs dependencies and runs the automated test suite to ensure code quality.
-- **Build Windows Executable (`build-windows.yml`)**: Runs on every push to `main` and can be triggered manually via the **Actions** tab. It produces a standalone `JarvisLauncher.exe`.
+```bash
+python -m pytest -q
+```
 
-### How to download the latest build:
-1. Go to the **Actions** tab in this repository.
-2. Select the **Build Windows Executable** workflow.
-3. Click on the most recent successful run.
-4. Scroll down to **Artifacts** and download `JarvisLauncher-Windows`.
+## Troubleshooting
 
-## ⚠️ Troubleshooting & Limitations
+- `PyAudio is not installed`: clap detection cannot start. Install PyAudio wheel for your Python version.
+- `Timeout waiting for window`: app launched but did not expose a window title in time. Increase item `delay` or `window_wait_timeout`.
+- `target was not found`: verify absolute paths for `app` and `shortcut` items.
+- No tray icon: run without `--no-tray`, or verify desktop/session supports tray integration.
+- Startup toggle mismatch: run Jarvis as the same Windows user that owns the startup registry entry.
 
-- **Window Matching**: Some apps take a few seconds to initialize their windows. Use the `delay` field if an app launches but fails to reposition.
-- **Permissions**: Some apps may require Administrator privileges to be repositioned if they were launched as Admin.
-- **Browsers**: URLs are opened in your default browser. Matching specific browser tabs can be hit-or-miss depending on how the browser handles window titles.
+## CI / Release
 
-## 🧪 Experimental Features
+- `CI` workflow: multi-version Python tests + source compile sanity check.
+- `Build and Release Windows Executable`: runs tests, builds with PyInstaller, uploads artifact, and publishes tagged releases.
 
-Legacy features like the AI voice assistant have been moved to the `experimental/` directory and are not part of the core product.
+## Notes
+
+- Experimental and legacy code is isolated in `experimental/`.
+- This project is optimized for Windows behavior first.

@@ -23,14 +23,15 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r requirements-core.txt
+        pip install pytest pyinstaller
         pip install pywin32 pyaudio
 
     - name: Run tests
       env:
         PYTHONPATH: .
       run: |
-        python -m pytest tests/
+        python -m pytest -q tests/
 
     - name: Build with PyInstaller
       run: |

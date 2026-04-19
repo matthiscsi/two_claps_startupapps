@@ -3,6 +3,7 @@ import subprocess
 import time
 import logging
 import os
+import shlex
 import psutil
 from screeninfo import get_monitors
 
@@ -96,9 +97,14 @@ class Launcher:
         position = item.get("position", "full")
         delay = item.get("delay", 0)
         window_title_match = item.get("window_title_match")
+        wait_timeout = float(item.get("window_wait_timeout", 15))
+        poll_interval = float(item.get("window_poll_interval", 1.0))
 
         if not item_type or not target:
             logger.error(f"Item '{name}' is missing required fields (type: {item_type}, target: {target}). Skipping.")
+            return
+
+        if not self._validate_launch_target(item_type=item_type, target=target, item_name=name):
             return
 
         # Normalize monitor
@@ -129,15 +135,18 @@ class Launcher:
             if item_type == "url":
                 webbrowser.open(target)
                 self.wait_and_position(name, monitor_idx, position,
-                                       window_title_match=window_title_match, is_browser=True)
+                                       window_title_match=window_title_match, is_browser=True,
+                                       timeout=wait_timeout, poll_interval=poll_interval)
             elif item_type == "app":
                 self.launch_app(target, item.get("args"))
                 self.wait_and_position(name, monitor_idx, position,
-                                       window_title_match=window_title_match, is_browser=False)
+                                       window_title_match=window_title_match, is_browser=False,
+                                       timeout=wait_timeout, poll_interval=poll_interval)
             elif item_type == "shortcut":
                 os.startfile(target)
                 self.wait_and_position(name, monitor_idx, position,
-                                       window_title_match=window_title_match, is_browser=False)
+                                       window_title_match=window_title_match, is_browser=False,
+                                       timeout=wait_timeout, poll_interval=poll_interval)
                 logger.info(f"SUCCESS: Launched {name} ({item_type})")
             else:
                 logger.warning(f"FAIL: Unknown item type: {item_type}")
@@ -192,10 +201,15 @@ class Launcher:
         elif path.lower() == "spotify":
             subprocess.Popen(["start", "spotify"], shell=True)
         else:
-            cmd = path
-            if args:
-                cmd = f'"{path}" {args}'
-            subprocess.Popen(cmd, shell=True)
+            parsed_args = []
+            if isinstance(args, str) and args.strip():
+                parsed_args = shlex.split(args, posix=False)
+            try:
+                subprocess.Popen([path, *parsed_args], shell=False)
+            except OSError:
+                # Fallback for command-style targets that are not absolute paths.
+                cmd = path if not args else f'{path} {args}'
+                subprocess.Popen(cmd, shell=True)
 
     def is_app_running(self, name, window_title_match=None):
         # 1. Try robust window detection
@@ -256,8 +270,10 @@ class Launcher:
         win32gui.EnumWindows(callback, None)
         return found_hwnd[0]
 
-    def wait_and_position(self, name, monitor_idx, position, is_browser, window_title_match=None, timeout=15):
+    def wait_and_position(self, name, monitor_idx, position, is_browser, window_title_match=None, timeout=15, poll_interval=1.0):
         """Wait for window to appear before positioning."""
+        poll_interval = max(0.1, float(poll_interval))
+        timeout = max(1.0, float(timeout))
         logger.info(f"Waiting up to {timeout}s for window '{name}'...")
         start_time = time.time()
         try:
@@ -266,11 +282,14 @@ class Launcher:
                 if hwnd:
                     logger.info(f"Window found for '{name}' (hwnd: {hwnd}) after {time.time() - start_time:.1f}s.")
                     # Add a small extra delay after window appears to ensure it's ready for placement
-                    time.sleep(1)
+                    time.sleep(min(1.0, poll_interval))
                     self.apply_position(hwnd, monitor_idx, position)
                     return
-                time.sleep(1.0)
-            logger.warning(f"Timeout waiting for window: {name}")
+                time.sleep(poll_interval)
+            logger.warning(
+                "Timeout waiting for window: %s. You can increase item.window_wait_timeout in config.",
+                name,
+            )
         except Exception as e:
             logger.error(f"Error in wait_and_position for '{name}': {e}", exc_info=True)
 
@@ -343,3 +362,35 @@ class Launcher:
             logger.info(f"Window {hwnd} positioned successfully at {x},{y} ({width}x{height})")
         except Exception as e:
             logger.error(f"Error positioning window {hwnd}: {e}")
+
+    def _validate_launch_target(self, item_type, target, item_name):
+        if item_type == "url":
+            return True
+
+        if item_type == "shortcut":
+            if not os.path.exists(target):
+                logger.error(
+                    "Shortcut '%s' does not exist for item '%s'. Update config target or remove the item.",
+                    target,
+                    item_name,
+                )
+                return False
+            return True
+
+        if item_type == "app":
+            known_aliases = {"discord", "spotify"}
+            if target.lower() in known_aliases:
+                return True
+            if os.path.exists(target):
+                return True
+            if os.path.basename(target) == target:
+                # Looks like a command on PATH (e.g., code, notepad), allow it.
+                return True
+            logger.error(
+                "Application target '%s' for item '%s' was not found. Check path or use a known command.",
+                target,
+                item_name,
+            )
+            return False
+
+        return True

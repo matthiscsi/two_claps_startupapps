@@ -1,20 +1,25 @@
-import PyInstaller.__main__
 import os
 import sys
+import PyInstaller.__main__
 
 def build():
     # Determine separator for path
     sep = ';' if sys.platform == 'win32' else ':'
+
+    if not os.path.exists("src/main.py"):
+        raise FileNotFoundError("src/main.py not found. Run build_exe.py from the repository root.")
 
     params = [
         'src/main.py',
         '--name=JarvisLauncher',
         '--onefile',
         '--clean',
+        '--noconfirm',
         f'--add-data=config.yaml{sep}.', f'--add-data=assets{sep}assets',
         '--paths=.',
         # Include hidden imports if necessary
         '--hidden-import=pkg_resources.py2_warn', # Sometimes needed for gTTS/others
+        '--collect-submodules=pystray',
     ]
 
     if sys.platform == 'win32':

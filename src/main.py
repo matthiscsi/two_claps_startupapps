@@ -6,7 +6,6 @@ import signal
 import time
 import threading
 import ctypes
-import traceback
 from PIL import Image, ImageDraw
 
 # Early logging setup to capture everything from the start
@@ -30,14 +29,6 @@ def global_exception_handler(exctype, value, tb):
 sys.excepthook = global_exception_handler
 if hasattr(threading, 'excepthook'):
     threading.excepthook = lambda args: global_exception_handler(args.exc_type, args.exc_value, args.exc_traceback)
-
-import os
-import signal
-import time
-import threading
-import ctypes
-import traceback
-from PIL import Image, ImageDraw
 
 try:
     import pystray
@@ -180,9 +171,7 @@ class JarvisApp:
         self.logger.info("Settings saved. Updating runtime components...")
         # Update components with new config
         if self.detector:
-            self.detector.settings = self.config.clap_settings
-            self.detector.threshold = self.config.clap_settings.get('threshold', 0.2)
-            self.detector.min_interval = self.config.clap_settings.get('min_interval', 0.2)
+            self.detector.refresh_settings(self.config.clap_settings)
 
         if self.audio:
             self.audio.enabled = self.config.audio_settings.get('enabled', True)
@@ -264,6 +253,10 @@ class JarvisApp:
         self.stop_event.set()
         if self.tray_icon:
             self.tray_icon.stop()
+        if self.detector:
+            self.detector._cleanup_audio()
+        if self.audio:
+            self.audio.shutdown()
         # The detector loop will check stop_event or be interrupted by sys.exit in signal handler
 
     def run(self):

@@ -4,6 +4,7 @@ from scipy import signal
 import logging
 from collections import deque
 from src.audio_lock import PYAUDIO_LOCK
+from src.clap_state import ClapDecision, DoubleClapStateMachine
 
 try:
     import pyaudio
@@ -38,6 +39,25 @@ class ClapDetector:
         self.crest_factor_min = self.settings.get("crest_factor_min", 4.0)
         self.sustained_peak_ratio = self.settings.get("sustained_peak_ratio", 0.60)
         self.max_sustained_frames = int(self.settings.get("max_sustained_frames", 3))
+        self.machine = DoubleClapStateMachine(
+            min_interval=self.min_interval,
+            max_interval=self.max_interval,
+        )
+
+    def refresh_settings(self, settings):
+        """Apply runtime-safe clap settings updates without restarting the process."""
+        self.settings = settings
+        self.threshold = settings.get("threshold", self.threshold)
+        self.min_interval = settings.get("min_interval", self.min_interval)
+        self.max_interval = settings.get("max_interval", self.max_interval)
+        self.max_transient_duration_sec = settings.get("max_transient_duration", self.max_transient_duration_sec)
+        self.crest_factor_min = settings.get("crest_factor_min", self.crest_factor_min)
+        self.sustained_peak_ratio = settings.get("sustained_peak_ratio", self.sustained_peak_ratio)
+        self.max_sustained_frames = int(settings.get("max_sustained_frames", self.max_sustained_frames))
+        self.machine = DoubleClapStateMachine(
+            min_interval=self.min_interval,
+            max_interval=self.max_interval,
+        )
 
     def _is_transient_clap(self, frame_filtered):
         """
@@ -168,10 +188,10 @@ class ClapDetector:
                     time.sleep(1)
             return
 
+        self.machine.reset()
         self.clap_count = 0
-        last_peak_time = -float("inf")
         filter_state = np.zeros((self.sos.shape[0], 2))
-        start_time = time.time()
+        start_time = time.monotonic()
 
         logger.info("Listening for claps...")
         first_frame = True
@@ -195,43 +215,33 @@ class ClapDetector:
                 # Detect peaks
                 self.last_peak = np.max(np.abs(frame_filtered))
                 self.recent_peaks.append(self.last_peak)
-                current_time = time.time() - start_time
+                current_time = time.monotonic() - start_time
 
                 clap_like, reason = self._is_transient_clap(frame_filtered)
                 if clap_like:
-                    if (current_time - last_peak_time) >= self.min_interval:
-                        if (current_time - last_peak_time) > self.max_interval:
-                            if self.clap_count > 0:
-                                logger.info("First clap timed out. Starting count over.")
-                            self.clap_count = 1
-                        else:
-                            self.clap_count += 1
+                    event = self.machine.register_clap(current_time)
+                    self.clap_count = event.clap_count
+                    self.state = event.state
 
+                    if event.decision == ClapDecision.ACCEPTED:
                         logger.info(f"Clap detected! (Count: {self.clap_count}, Peak: {self.last_peak:.4f})")
-                        last_peak_time = current_time
-
-                        if self.clap_count == 2:
-                            logger.info("Double clap detected!")
-                            if callback:
-                                should_stop = callback()
-                                if should_stop:
-                                    break
-                            self.clap_count = 0 # Reset for next routine
-                            self.state = "IDLE"
-                        else:
-                            self.state = "WAITING"
-                    else:
+                    elif event.decision == ClapDecision.DOUBLE_CLAP:
+                        logger.info("Double clap detected!")
+                        if callback:
+                            should_stop = callback()
+                            if should_stop:
+                                break
+                    elif event.reason == "min_interval":
                         logger.debug(f"Peak {self.last_peak:.4f} ignored: within min_interval cooldown.")
                 elif self.last_peak >= self.threshold:
-                    self.state = "REJECTED"
+                    event = self.machine.reject(reason)
+                    self.clap_count = event.clap_count
+                    self.state = event.state
                     logger.debug(f"Rejected non-clap transient candidate. peak={self.last_peak:.4f}, reason={reason}")
 
-                # Update state for external polling
-                if self.clap_count == 0:
-                    self.state = "IDLE"
-                elif (current_time - last_peak_time) > self.max_interval:
-                    self.state = "IDLE"
-                    self.clap_count = 0
+                tick = self.machine.on_tick(current_time)
+                self.clap_count = tick.clap_count
+                self.state = tick.state
 
         finally:
             self._cleanup_audio()

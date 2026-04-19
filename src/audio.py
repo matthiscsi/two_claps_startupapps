@@ -128,3 +128,16 @@ class AudioEngine:
         phrase = self.config.audio_settings.get("success_phrase")
         if phrase:
             self.speak(phrase)
+
+    def shutdown(self):
+        """Release mixer resources during app shutdown."""
+        if pygame and self.initialized:
+            try:
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
+            try:
+                pygame.mixer.quit()
+            except Exception:
+                pass
+        self.initialized = False
