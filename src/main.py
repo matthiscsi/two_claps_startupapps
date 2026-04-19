@@ -42,6 +42,7 @@ from src.launcher import Launcher
 from src.audio import AudioEngine
 from src.ui import SettingsUI
 from src.startup_helper import get_startup_state, apply_startup_state, get_startup_command
+from src.ui_models import AppRuntimeSnapshot
 
 class JarvisApp:
     def __init__(self, args):
@@ -134,28 +135,34 @@ class JarvisApp:
         self.runtime_ready_event = threading.Event()
         self.start_time_monotonic = time.monotonic()
         self.startup_delay_seconds = max(0.0, float(self.config.system_settings.get("startup_delay", 0.0)))
+        self.listening_enabled = True
+        configured_active_routine = self.config.system_settings.get("active_routine")
+        if configured_active_routine and configured_active_routine in self.config.routines:
+            self.args.routine = configured_active_routine
 
         self.routine_lock = threading.Lock()
         self.stop_event = threading.Event()
         self.tray_icon = None
 
-    def on_trigger_routine(self):
+    def on_trigger_routine(self, source="unknown"):
         def run():
             elapsed = time.monotonic() - self.start_time_monotonic
             remaining_startup_delay = self.startup_delay_seconds - elapsed
             if remaining_startup_delay > 0:
                 self.logger.info(
-                    f"Routine trigger delayed for startup delay window. remaining={remaining_startup_delay:.2f}s"
+                    "EVENT: routine_trigger_delayed source=%s remaining=%.2fs",
+                    source,
+                    remaining_startup_delay,
                 )
                 # Delay only routine execution, never tray/UI initialization.
                 time.sleep(remaining_startup_delay)
 
             # Use non-blocking acquire to ignore duplicate triggers while routine is running
             if not self.routine_lock.acquire(blocking=False):
-                self.logger.warning("Routine already in progress. Ignoring trigger.")
+                self.logger.warning("EVENT: routine_trigger_ignored source=%s reason=already_running", source)
                 return
             try:
-                self.logger.info(f"Triggering routine: {self.args.routine}")
+                self.logger.info("EVENT: routine_triggered source=%s routine=%s", source, self.args.routine)
                 if self.audio:
                     self.audio.play_startup()
                 if self.launcher:
@@ -167,8 +174,46 @@ class JarvisApp:
 
         threading.Thread(target=run, daemon=True).start()
 
+    def on_clap_callback(self):
+        if not self.listening_enabled:
+            self.logger.info("EVENT: clap_ignored reason=listening_paused")
+            return False
+        self.on_trigger_routine(source="double_clap")
+        return False
+
+    def set_active_routine(self, routine_name, source="unknown"):
+        if routine_name not in self.config.routines:
+            self.logger.warning("EVENT: routine_switch_failed source=%s routine=%s reason=not_found", source, routine_name)
+            return False
+        self.args.routine = routine_name
+        self.config.data.setdefault("system", {})
+        self.config.data["system"]["active_routine"] = routine_name
+        self.logger.info("EVENT: routine_switched source=%s routine=%s", source, routine_name)
+        if self.tray_icon:
+            try:
+                self.tray_icon.update_menu()
+            except Exception:
+                pass
+        return True
+
+    def toggle_listening(self):
+        self.listening_enabled = not self.listening_enabled
+        self.logger.info("EVENT: listening_toggled enabled=%s", self.listening_enabled)
+        if self.tray_icon:
+            try:
+                self.tray_icon.update_menu()
+            except Exception:
+                pass
+
+    def runtime_snapshot(self):
+        return AppRuntimeSnapshot(
+            listening_enabled=self.listening_enabled,
+            active_routine=self.args.routine,
+            runtime_ready=self.runtime_ready_event.is_set(),
+        )
+
     def _on_settings_saved(self):
-        self.logger.info("Settings saved. Updating runtime components...")
+        self.logger.info("EVENT: settings_saved_and_applied")
         # Update components with new config
         if self.detector:
             self.detector.refresh_settings(self.config.clap_settings)
@@ -177,6 +222,9 @@ class JarvisApp:
             self.audio.enabled = self.config.audio_settings.get('enabled', True)
             self.audio.maybe_initialize()
         self.startup_delay_seconds = max(0.0, float(self.config.system_settings.get("startup_delay", 0.0)))
+        active_routine = self.config.system_settings.get("active_routine")
+        if active_routine:
+            self.set_active_routine(active_routine, source="settings_apply")
 
     def _initialize_runtime_subsystems(self):
         self.logger.info("START: Initializing deferred runtime subsystems (audio + clap detector)...")
@@ -225,13 +273,37 @@ class JarvisApp:
             self.shutdown()
 
         def on_trigger(icon, item):
-            self.on_trigger_routine()
+            self.on_trigger_routine(source="tray_manual")
 
         def on_settings(icon, item):
             self.show_settings()
 
+        def on_toggle_listening(icon, item):
+            self.toggle_listening()
+
+        def make_routine_handler(routine_name):
+            def _handler(icon, item):
+                self.set_active_routine(routine_name, source="tray_switch")
+            return _handler
+
+        routine_items = [
+            pystray.MenuItem(
+                routine_name,
+                make_routine_handler(routine_name),
+                checked=lambda item, rn=routine_name: self.args.routine == rn,
+                radio=True,
+            )
+            for routine_name in sorted(self.config.routines.keys())
+        ]
+
         menu = pystray.Menu(
-            pystray.MenuItem(f"Trigger {self.args.routine}", on_trigger),
+            pystray.MenuItem(lambda item: f"Trigger {self.args.routine}", on_trigger),
+            pystray.MenuItem(
+                "Listening Enabled",
+                on_toggle_listening,
+                checked=lambda item: self.listening_enabled,
+            ),
+            pystray.MenuItem("Switch Routine", pystray.Menu(*routine_items)),
             pystray.MenuItem("Settings...", on_settings),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_quit)
@@ -239,9 +311,20 @@ class JarvisApp:
         return pystray.Icon("JarvisLauncher", load_icon(), "Jarvis Launcher", menu=menu)
 
     def show_settings(self):
-        self.logger.info("START: Opening settings UI...")
+        self.logger.info(
+            "EVENT: opening_settings_ui runtime_ready=%s detector_available=%s",
+            self.runtime_ready_event.is_set(),
+            self.detector is not None,
+        )
         # SettingsUI handles singleton internally via _instance
-        ui = SettingsUI(self.config, on_save_callback=self._on_settings_saved, detector=self.detector)
+        ui = SettingsUI(
+            self.config,
+            on_save_callback=self._on_settings_saved,
+            detector=self.detector,
+            runtime_snapshot_provider=self.runtime_snapshot,
+            trigger_routine_callback=self.on_trigger_routine,
+            switch_routine_callback=self.set_active_routine,
+        )
         # We run it in a thread to keep the tray responsive.
         # Non-daemon so it doesn't get killed instantly, but on Windows
         # we need to be careful with Tkinter and threads.
@@ -313,7 +396,7 @@ class JarvisApp:
             if self.detector:
                 try:
                     self.detector.listen_for_double_clap(
-                        callback=lambda: self.on_trigger_routine() or False,
+                        callback=self.on_clap_callback,
                         stop_event=self.stop_event
                     )
                 except Exception as e:

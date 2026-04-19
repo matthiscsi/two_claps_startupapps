@@ -1,15 +1,31 @@
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-import json
 import logging
-import sys
 import os
-import re
-from screeninfo import get_monitors
-from src.config import get_resource_path
-from src.startup_helper import get_startup_state, apply_startup_state
-from src.logger import get_log_dir
+import subprocess
+import sys
+import time
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog, ttk
+
 from src.audio_lock import PYAUDIO_LOCK
+from src.calibration import recommend_clap_settings
+from src.config import get_resource_path
+from src.logger import get_log_dir
+from src.startup_helper import apply_startup_state, get_startup_state
+from src.ui_layout import ScrollableFrame, preferred_window_geometry
+from src.ui_logic import (
+    UIValidationError,
+    apply_form_state_to_config,
+    build_routine_item,
+    cloned_config_data,
+    describe_detector_state,
+    detect_duplicate_item_names,
+    parse_monitor_value,
+    pick_default_monitor_option,
+    validate_full_config_data,
+    validate_routine_item_inputs,
+)
+from src.ui_models import AppRuntimeSnapshot, RuntimeStatus, SettingsFormState
+from src.ui_routines import RoutineStore
 
 logger = logging.getLogger(__name__)
 
@@ -18,31 +34,49 @@ try:
 except ImportError:
     pyaudio = None
 
+
 class SettingsUI:
     _instance = None
 
-    def __init__(self, config_manager, on_save_callback=None, detector=None):
+    def __init__(
+        self,
+        config_manager,
+        on_save_callback=None,
+        detector=None,
+        runtime_snapshot_provider=None,
+        trigger_routine_callback=None,
+        switch_routine_callback=None,
+    ):
         self.config_manager = config_manager
         self.on_save_callback = on_save_callback
         self.detector = detector
+        self.runtime_snapshot_provider = runtime_snapshot_provider
+        self.trigger_routine_callback = trigger_routine_callback
+        self.switch_routine_callback = switch_routine_callback
         self.root = None
         self.meter_canvas = None
+        self.state_label = None
+        self.runtime_status_label = None
+        self.quick_state_label = None
+        self.status_line = None
         self._monitoring = False
+        self._dirty = False
+        self._startup_state = {"enabled": False, "command": None}
+        self.routine_store = RoutineStore(self.config_manager.routines, routine_name="morning_routine")
 
     def open(self):
         if SettingsUI._instance:
             try:
-                # Use after() to ensure UI updates happen on the main thread safely
                 SettingsUI._instance.after(0, lambda: SettingsUI._instance.deiconify())
                 SettingsUI._instance.after(10, lambda: SettingsUI._instance.lift())
                 SettingsUI._instance.after(20, lambda: SettingsUI._instance.focus_force())
-            except:
+            except Exception:
                 SettingsUI._instance = None
             if SettingsUI._instance:
                 return
 
         try:
-            logger.info("Initializing Settings UI window...")
+            logger.info("UI_EVENT: opening_settings_window")
             self.root = tk.Tk()
             SettingsUI._instance = self.root
             self.root.title("Jarvis Launcher Settings")
@@ -50,253 +84,253 @@ class SettingsUI:
             if os.path.exists(icon_path):
                 try:
                     self.root.iconbitmap(icon_path)
-                except:
+                except Exception:
                     pass
-            self.root.geometry("600x500")
 
-            # Ensure instance is cleared when window is closed
-            def on_closing():
-                self._monitoring = False
-                SettingsUI._instance = None
-                self.root.destroy()
+            self.root.geometry(preferred_window_geometry(self.root))
+            self.root.minsize(700, 560)
+            self.root.protocol("WM_DELETE_WINDOW", self._close_window)
 
-            self.root.protocol("WM_DELETE_WINDOW", on_closing)
+            style = ttk.Style()
+            style.configure("Routine.Treeview", rowheight=30)
 
-            self.style = ttk.Style()
-            # Use a custom style to avoid affecting all Treeview widgets
-            self.style.configure("Routine.Treeview", rowheight=30)
+            self.root.grid_rowconfigure(1, weight=1)
+            self.root.grid_columnconfigure(0, weight=1)
+
+            header = ttk.Frame(self.root)
+            header.grid(row=0, column=0, sticky="ew", padx=15, pady=(10, 0))
+            header.grid_columnconfigure(0, weight=1)
+
+            ttk.Label(
+                header,
+                text="Changes are active after Apply or Save. Save applies and closes.",
+                foreground="#444",
+            ).grid(row=0, column=0, sticky="w")
+            self.quick_state_label = ttk.Label(header, text="", foreground="#555")
+            self.quick_state_label.grid(row=0, column=1, sticky="e")
 
             self.notebook = ttk.Notebook(self.root)
-            self.notebook.pack(expand=True, fill='both', padx=15, pady=15)
+            self.notebook.grid(row=1, column=0, sticky="nsew", padx=15, pady=10)
 
             self._create_general_tab()
             self._create_routines_tab()
 
-            btn_frame = ttk.Frame(self.root)
-            btn_frame.pack(fill='x', padx=10, pady=10)
+            footer = ttk.Frame(self.root)
+            footer.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+            footer.grid_columnconfigure(0, weight=1)
 
-            ttk.Button(btn_frame, text="Save", command=self._save_settings).pack(side='right', padx=5)
-            ttk.Button(btn_frame, text="Cancel", command=on_closing).pack(side='right', padx=5)
+            self.status_line = ttk.Label(footer, text="Ready", foreground="#666")
+            self.status_line.grid(row=0, column=0, sticky="w", padx=5)
 
-            logger.info("Starting Tkinter mainloop...")
+            button_box = ttk.Frame(footer)
+            button_box.grid(row=0, column=1, sticky="e")
+            ttk.Button(button_box, text="Apply", command=lambda: self._save_settings(close_window=False)).pack(
+                side="right", padx=5
+            )
+            ttk.Button(button_box, text="Save", command=lambda: self._save_settings(close_window=True)).pack(
+                side="right", padx=5
+            )
+            ttk.Button(button_box, text="Reset", command=self._reset_form_from_config).pack(side="right", padx=5)
+            ttk.Button(button_box, text="Cancel", command=self._close_window).pack(side="right", padx=5)
+
+            self._mark_clean("Ready")
+            self.root.after(500, self._update_runtime_header)
             self.root.mainloop()
         except Exception as e:
-            logger.error(f"Failed to open Settings UI: {e}", exc_info=True)
+            logger.error("Failed to open Settings UI: %s", e, exc_info=True)
             SettingsUI._instance = None
             if self.root:
-                try: self.root.destroy()
-                except: pass
+                try:
+                    self.root.destroy()
+                except Exception:
+                    pass
 
     def _create_general_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="General")
+        tab.grid_rowconfigure(0, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
 
-        # Clap Settings
-        clap_frame = ttk.LabelFrame(tab, text="Clap Detection")
-        clap_frame.pack(fill='x', padx=10, pady=5)
+        scroller = ScrollableFrame(tab)
+        scroller.grid(row=0, column=0, sticky="nsew")
+        content = scroller.content
 
-        self.threshold_var = tk.DoubleVar(value=self.config_manager.clap_settings.get('threshold', 0.15))
-        ttk.Label(clap_frame, text="Threshold:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
-        ttk.Entry(clap_frame, textvariable=self.threshold_var).grid(row=0, column=1, padx=5, pady=5)
+        clap_frame = ttk.LabelFrame(content, text="Clap Detection")
+        clap_frame.pack(fill="x", padx=10, pady=8)
+        clap_frame.columnconfigure(1, weight=1)
 
-        self.min_interval_var = tk.DoubleVar(value=self.config_manager.clap_settings.get('min_interval', 0.2))
-        ttk.Label(clap_frame, text="Min Interval (s):").grid(row=1, column=0, padx=5, pady=5, sticky='w')
-        ttk.Entry(clap_frame, textvariable=self.min_interval_var).grid(row=1, column=1, padx=5, pady=5)
+        self.threshold_var = tk.DoubleVar()
+        self.min_interval_var = tk.DoubleVar()
 
-        # Device Selection (Simplified)
-        if pyaudio:
-            try:
-                with PYAUDIO_LOCK:
-                    p = pyaudio.PyAudio()
-                    dev = p.get_default_input_device_info()
-                    dev_name = dev.get('name', 'Default')
-                    p.terminate()
-                device_text = f"Mic: {dev_name}"
-            except:
-                device_text = "Mic: Default system microphone"
-            ttk.Label(clap_frame, text=device_text, font=('', 8, 'italic')).grid(row=2, column=0, columnspan=2, padx=5, pady=2)
-        else:
-            ttk.Label(clap_frame, text="Note: PyAudio not detected. Detection may be limited.", foreground="red").grid(row=2, column=0, columnspan=2, padx=5, pady=5)
+        ttk.Label(clap_frame, text="Sensitivity (Threshold):").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Entry(clap_frame, textvariable=self.threshold_var).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Label(
+            clap_frame, text="Higher value = fewer accidental triggers", foreground="#666", font=("", 8)
+        ).grid(row=1, column=1, padx=5, sticky="w")
 
-        # Microphone Level Meter
+        ttk.Label(clap_frame, text="Cooldown Between Peaks (s):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ttk.Entry(clap_frame, textvariable=self.min_interval_var).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Label(
+            clap_frame, text="Prevents one clap from counting twice", foreground="#666", font=("", 8)
+        ).grid(row=3, column=1, padx=5, sticky="w")
+
+        button_row = ttk.Frame(clap_frame)
+        button_row.grid(row=4, column=0, columnspan=2, sticky="w", padx=5, pady=(8, 2))
+        ttk.Button(button_row, text="Guided Calibration...", command=self._open_guided_calibration).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Label(
+            button_row,
+            text="Recommended for first setup and microphone changes.",
+            foreground="#666",
+        ).pack(side="left")
+
+        device_text = self._get_microphone_label()
+        device_color = "red" if "not detected" in device_text.lower() else "#444"
+        ttk.Label(clap_frame, text=device_text, foreground=device_color, font=("", 8, "italic")).grid(
+            row=5, column=0, columnspan=2, padx=5, pady=3, sticky="w"
+        )
+
         meter_frame = ttk.Frame(clap_frame)
-        meter_frame.grid(row=3, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
+        meter_frame.grid(row=6, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        meter_frame.columnconfigure(1, weight=1)
+        ttk.Label(meter_frame, text="Mic Level:").grid(row=0, column=0, padx=5, sticky="w")
+        self.meter_canvas = tk.Canvas(meter_frame, height=20, bg="#222")
+        self.meter_canvas.grid(row=0, column=1, padx=5, sticky="ew")
+        self.state_label = ttk.Label(meter_frame, text="IDLE", width=16)
+        self.state_label.grid(row=0, column=2, padx=5)
 
-        ttk.Label(meter_frame, text="Mic Level:").pack(side='left', padx=5)
-        self.meter_canvas = tk.Canvas(meter_frame, width=200, height=20, bg='#222')
-        self.meter_canvas.pack(side='left', expand=True, fill='x', padx=5)
-
-        self.state_label = ttk.Label(meter_frame, text="IDLE", width=10)
-        self.state_label.pack(side='left', padx=5)
+        self.runtime_status_label = ttk.Label(clap_frame, text="Runtime status: initializing...", foreground="#555")
+        self.runtime_status_label.grid(row=7, column=0, columnspan=2, padx=5, pady=(0, 6), sticky="w")
 
         if self.detector:
             self._monitoring = True
             self.root.after(100, self._update_meter)
 
-        # Audio Settings
-        audio_frame = ttk.LabelFrame(tab, text="Audio / TTS")
-        audio_frame.pack(fill='x', padx=10, pady=5)
+        audio_frame = ttk.LabelFrame(content, text="Audio / TTS")
+        audio_frame.pack(fill="x", padx=10, pady=8)
 
-        self.audio_enabled_var = tk.BooleanVar(value=self.config_manager.audio_settings.get('enabled', False))
-        ttk.Checkbutton(audio_frame, text="Enable Jarvis Feedback", variable=self.audio_enabled_var).pack(anchor='w', padx=5, pady=5)
+        self.audio_enabled_var = tk.BooleanVar()
+        self.audio_mode_var = tk.StringVar()
+        self.audio_file_var = tk.StringVar()
+        self.startup_phrase_var = tk.StringVar()
+
+        ttk.Checkbutton(audio_frame, text="Enable Jarvis feedback", variable=self.audio_enabled_var).pack(
+            anchor="w", padx=5, pady=5
+        )
 
         mode_frame = ttk.Frame(audio_frame)
-        mode_frame.pack(fill='x', padx=5, pady=5)
-        ttk.Label(mode_frame, text="Mode:").pack(side='left', padx=5)
-        self.audio_mode_var = tk.StringVar(value=self.config_manager.audio_settings.get('mode', 'tts'))
-        ttk.Radiobutton(mode_frame, text="TTS", variable=self.audio_mode_var, value="tts").pack(side='left', padx=5)
-        ttk.Radiobutton(mode_frame, text="Audio File", variable=self.audio_mode_var, value="file").pack(side='left', padx=5)
+        mode_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(mode_frame, text="Mode:").pack(side="left", padx=5)
+        ttk.Radiobutton(mode_frame, text="TTS", variable=self.audio_mode_var, value="tts").pack(side="left", padx=5)
+        ttk.Radiobutton(mode_frame, text="Audio File", variable=self.audio_mode_var, value="file").pack(
+            side="left", padx=5
+        )
 
-        # File selection frame
         self.file_frame = ttk.Frame(audio_frame)
-        self.file_frame.pack(fill='x', padx=5, pady=5)
-        ttk.Label(self.file_frame, text="File:").pack(side='left', padx=5)
-        self.audio_file_var = tk.StringVar(value=self.config_manager.audio_settings.get('file_path', ''))
+        self.file_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(self.file_frame, text="File:").pack(side="left", padx=5)
         self.audio_file_entry = ttk.Entry(self.file_frame, textvariable=self.audio_file_var)
-        self.audio_file_entry.pack(side='left', expand=True, fill='x', padx=5)
+        self.audio_file_entry.pack(side="left", expand=True, fill="x", padx=5)
+        self.audio_browse_btn = ttk.Button(self.file_frame, text="...", width=3, command=self._browse_audio_file)
+        self.audio_browse_btn.pack(side="left", padx=2)
+        self.audio_test_btn = ttk.Button(self.file_frame, text="Test", command=self._test_audio)
+        self.audio_test_btn.pack(side="left", padx=2)
 
-        def browse_audio():
-            f = filedialog.askopenfilename(filetypes=[("Audio files", "*.mp3 *.wav *.ogg"), ("All files", "*.*")])
-            if f:
-                self.audio_file_var.set(f)
-
-        self.audio_browse_btn = ttk.Button(self.file_frame, text="...", width=3, command=browse_audio)
-        self.audio_browse_btn.pack(side='left', padx=2)
-
-        def test_audio():
-            # Temporarily enable if disabled for testing
-            old_enabled = self.config_manager.audio_settings.get('enabled')
-            old_mode = self.config_manager.audio_settings.get('mode')
-            old_file = self.config_manager.audio_settings.get('file_path')
-
-            self.config_manager.audio_settings['enabled'] = True
-            self.config_manager.audio_settings['mode'] = self.audio_mode_var.get()
-            self.config_manager.audio_settings['file_path'] = self.audio_file_var.get()
-
-            # Use a dummy detector if needed or just initialize engine
-            from src.audio import AudioEngine
-            temp_engine = AudioEngine(self.config_manager)
-            temp_engine.enabled = True
-            temp_engine.maybe_initialize()
-
-            if self.audio_mode_var.get() == "tts":
-                temp_engine.speak(self.startup_phrase_var.get())
-            else:
-                temp_engine.play_file(self.audio_file_var.get())
-
-            # Restore
-            self.config_manager.audio_settings['enabled'] = old_enabled
-            self.config_manager.audio_settings['mode'] = old_mode
-            self.config_manager.audio_settings['file_path'] = old_file
-
-        self.audio_test_btn = ttk.Button(self.file_frame, text="Test", command=test_audio)
-        self.audio_test_btn.pack(side='left', padx=2)
-
-        # Startup Phrase frame
         self.phrase_frame = ttk.Frame(audio_frame)
-        self.phrase_frame.pack(fill='x', padx=5, pady=5)
-        self.startup_phrase_var = tk.StringVar(value=self.config_manager.audio_settings.get('startup_phrase', ''))
-        ttk.Label(self.phrase_frame, text="Startup Phrase:").pack(anchor='w', padx=5)
-        ttk.Entry(self.phrase_frame, textvariable=self.startup_phrase_var).pack(fill='x', padx=5, pady=5)
+        self.phrase_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(self.phrase_frame, text="Startup Phrase:").pack(anchor="w", padx=5)
+        ttk.Entry(self.phrase_frame, textvariable=self.startup_phrase_var).pack(fill="x", padx=5, pady=5)
 
-        def update_visibility(*args):
-            is_enabled = self.audio_enabled_var.get()
-            mode = self.audio_mode_var.get()
+        self.audio_mode_var.trace_add("write", lambda *_: self._update_audio_visibility())
+        self.audio_enabled_var.trace_add("write", lambda *_: self._update_audio_visibility())
 
-            if mode == "tts":
-                self.phrase_frame.pack(fill='x', padx=5, pady=5)
-            else:
-                self.phrase_frame.pack_forget()
+        system_frame = ttk.LabelFrame(content, text="System")
+        system_frame.pack(fill="x", padx=10, pady=8)
 
-            # Enable/disable file controls based on mode and overall enabled state
-            if is_enabled and mode == "file":
-                self.audio_file_entry.state(['!disabled'])
-                self.audio_browse_btn.state(['!disabled'])
-                # Test button should probably work if enabled, but specifically for file mode here
-            else:
-                self.audio_file_entry.state(['disabled'])
-                self.audio_browse_btn.state(['disabled'])
-
-            # Test button and phrase field also depend on enabled state
-            if is_enabled:
-                self.audio_test_btn.state(['!disabled'])
-                # Phrase field only if TTS
-                # We don't have a ref to the phrase entry, but it's okay for now
-            else:
-                self.audio_test_btn.state(['disabled'])
-
-        self.audio_mode_var.trace_add("write", update_visibility)
-        self.audio_enabled_var.trace_add("write", update_visibility)
-        update_visibility()
-
-        # System Settings
-        system_frame = ttk.LabelFrame(tab, text="System")
-        system_frame.pack(fill='x', padx=10, pady=5)
-
+        self.startup_var = tk.BooleanVar(value=False)
         if sys.platform == "win32":
-            startup_state = get_startup_state()
-            logger.info(f"Initializing startup checkbox from system state: {startup_state}")
-            self.startup_var = tk.BooleanVar(value=startup_state["enabled"])
+            self._startup_state = get_startup_state()
+            self.startup_var.set(self._startup_state["enabled"])
+            self.startup_var.trace_add("write", lambda *_: self._mark_dirty("Startup preference changed"))
+            ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(
+                anchor="w", padx=5, pady=5
+            )
 
-            def on_startup_toggle(*args):
-                logger.info(f"Startup checkbox toggled by user: {self.startup_var.get()}")
+        self.startup_delay_var = tk.DoubleVar()
+        ttk.Label(system_frame, text="Startup delay (seconds):").pack(anchor="w", padx=5, pady=(5, 0))
+        ttk.Entry(system_frame, textvariable=self.startup_delay_var).pack(anchor="w", padx=5, pady=(0, 5))
 
-            self.startup_var.trace_add("write", on_startup_toggle)
+        quick_row = ttk.Frame(system_frame)
+        quick_row.pack(fill="x", padx=5, pady=5)
+        ttk.Button(quick_row, text="Open Logs Folder", command=self._open_logs).pack(side="left")
+        ttk.Button(quick_row, text="Test Active Routine Now", command=self._test_active_routine).pack(side="left", padx=8)
 
-            ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(anchor='w', padx=5, pady=5)
-
-        self.startup_delay_var = tk.DoubleVar(value=self.config_manager.system_settings.get('startup_delay', 0.0))
-        ttk.Label(system_frame, text="Startup delay (seconds):").pack(anchor='w', padx=5, pady=(5, 0))
-        ttk.Entry(system_frame, textvariable=self.startup_delay_var).pack(anchor='w', padx=5, pady=(0, 5))
-
-        # Logs Folder
-        def open_logs():
-            log_dir = get_log_dir()
-            if os.path.exists(log_dir):
-                if sys.platform == "win32":
-                    os.startfile(log_dir)
-                else:
-                    import subprocess
-                    subprocess.Popen(['xdg-open', log_dir])
-            else:
-                messagebox.showinfo("Information", f"Log directory does not exist yet: {log_dir}")
-
-        ttk.Button(system_frame, text="Open Logs Folder", command=open_logs).pack(anchor='w', padx=5, pady=5)
+        self._bind_dirty_tracking()
+        self._reset_form_from_config(mark_status=False)
 
     def _create_routines_tab(self):
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Morning Routine")
+        self.notebook.add(tab, text="Routines")
+        tab.grid_rowconfigure(0, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
 
-        helper_label = ttk.Label(tab, text="Drag items using the ☰ handle to reorder startup sequence", font=('', 9, 'italic'), foreground='#666')
-        helper_label.pack(anchor='w', padx=10, pady=(10, 2))
+        scroller = ScrollableFrame(tab)
+        scroller.grid(row=0, column=0, sticky="nsew")
+        content = scroller.content
 
-        tree_frame = ttk.Frame(tab)
-        tree_frame.pack(expand=True, fill='both', padx=10, pady=5)
+        top_row = ttk.Frame(content)
+        top_row.pack(fill="x", padx=10, pady=(10, 4))
+        top_row.columnconfigure(1, weight=1)
 
-        self.routine_tree = ttk.Treeview(tree_frame, columns=('Handle', 'Type', 'Path', 'Monitor', 'Position'), show='headings', style="Routine.Treeview")
-        self.routine_tree.tag_configure('dragging', background='#e1f5fe')
+        ttk.Label(top_row, text="Routine:").grid(row=0, column=0, sticky="w")
+        self.selected_routine_var = tk.StringVar()
+        self.routine_selector = ttk.Combobox(top_row, textvariable=self.selected_routine_var, state="readonly")
+        self.routine_selector.grid(row=0, column=1, sticky="ew", padx=6)
+        self.routine_selector.bind("<<ComboboxSelected>>", self._on_routine_changed)
 
-        self.routine_tree.heading('Handle', text='')
-        self.routine_tree.column('Handle', width=40, anchor='center', stretch=False)
+        ttk.Button(top_row, text="New", command=self._create_routine).grid(row=0, column=2, padx=2)
+        ttk.Button(top_row, text="Clone", command=self._clone_routine).grid(row=0, column=3, padx=2)
+        ttk.Button(top_row, text="Delete", command=self._delete_routine).grid(row=0, column=4, padx=2)
 
-        self.routine_tree.heading('Type', text='Type')
-        self.routine_tree.column('Type', width=80)
+        helper = ttk.Label(
+            content,
+            text="Drag items by the handle (☰) to reorder launch sequence.",
+            font=("", 9, "italic"),
+            foreground="#666",
+        )
+        helper.pack(anchor="w", padx=10, pady=(2, 2))
 
-        self.routine_tree.heading('Path', text='Path')
+        tree_frame = ttk.Frame(content)
+        tree_frame.pack(expand=True, fill="both", padx=10, pady=5)
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
 
-        self.routine_tree.heading('Monitor', text='Monitor')
-        self.routine_tree.column('Monitor', width=80)
-
-        self.routine_tree.heading('Position', text='Position')
-        self.routine_tree.column('Position', width=80)
+        self.routine_tree = ttk.Treeview(
+            tree_frame,
+            columns=("Handle", "Type", "Path", "Monitor", "Position", "Delay"),
+            show="headings",
+            style="Routine.Treeview",
+        )
+        self.routine_tree.tag_configure("dragging", background="#e1f5fe")
+        self.routine_tree.heading("Handle", text="")
+        self.routine_tree.column("Handle", width=40, anchor="center", stretch=False)
+        self.routine_tree.heading("Type", text="Type")
+        self.routine_tree.column("Type", width=80)
+        self.routine_tree.heading("Path", text="Target")
+        self.routine_tree.column("Path", width=280)
+        self.routine_tree.heading("Monitor", text="Monitor")
+        self.routine_tree.column("Monitor", width=80)
+        self.routine_tree.heading("Position", text="Position")
+        self.routine_tree.column("Position", width=80)
+        self.routine_tree.heading("Delay", text="Delay")
+        self.routine_tree.column("Delay", width=70)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.routine_tree.yview)
         self.routine_tree.configure(yscrollcommand=scrollbar.set)
+        self.routine_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
 
-        self.routine_tree.pack(side='left', expand=True, fill='both')
-        scrollbar.pack(side='right', fill='y')
-
-        # Drag and Drop support
         self.routine_tree.bind("<ButtonPress-1>", self._on_tree_click)
         self.routine_tree.bind("<B1-Motion>", self._on_tree_drag)
         self.routine_tree.bind("<ButtonRelease-1>", self._on_tree_release)
@@ -304,402 +338,761 @@ class SettingsUI:
         self.routine_tree.bind("<Leave>", lambda e: self.routine_tree.config(cursor=""))
         self._drag_data = {"item": None, "dragged": False}
 
-        # Track which routine is currently selected for editing
-        self.current_routine_name = "morning_routine"
+        btn_frame = ttk.Frame(content)
+        btn_frame.pack(fill="x", padx=10, pady=(6, 15))
+        ttk.Button(btn_frame, text="Add Item", command=self._add_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Edit Item", command=self._edit_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Duplicate Item", command=self._duplicate_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Trigger Selected Routine", command=self._trigger_selected_routine).pack(side="right", padx=5)
 
+        self._refresh_routine_selector()
         self._refresh_routine_list()
 
-        btn_frame = ttk.Frame(tab)
-        btn_frame.pack(fill='x', padx=10, pady=(5, 15))
-        ttk.Button(btn_frame, text="Add Shortcut", command=self._add_routine_item).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Edit Item", command=self._edit_routine_item).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side='left', padx=5)
+    def _bind_dirty_tracking(self):
+        tracked = [
+            self.threshold_var,
+            self.min_interval_var,
+            self.audio_enabled_var,
+            self.audio_mode_var,
+            self.audio_file_var,
+            self.startup_phrase_var,
+            self.startup_delay_var,
+            self.selected_routine_var,
+        ]
+        for variable in tracked:
+            variable.trace_add("write", lambda *_: self._mark_dirty("Unsaved changes"))
+
+    def _mark_dirty(self, status_text="Unsaved changes"):
+        if not self._dirty:
+            logger.info("UI_EVENT: state_dirty")
+        self._dirty = True
+        if self.status_line:
+            self.status_line.config(text=status_text, foreground="#8a6d3b")
+
+    def _mark_clean(self, status_text="Saved and applied"):
+        self._dirty = False
+        if self.status_line:
+            self.status_line.config(text=status_text, foreground="#3c763d")
+
+    def _refresh_routine_selector(self):
+        routines = sorted(self.config_manager.routines.keys())
+        self.routine_selector["values"] = routines
+        desired = self.config_manager.system_settings.get("active_routine", "morning_routine")
+        if desired not in routines and routines:
+            desired = routines[0]
+        if desired:
+            self.selected_routine_var.set(desired)
+            self.routine_store.routine_name = desired
+
+    def _on_routine_changed(self, _event=None):
+        selected = self.selected_routine_var.get()
+        if selected:
+            self.routine_store.routine_name = selected
+            self._refresh_routine_list()
+            self._mark_dirty("Active routine changed")
 
     def _refresh_routine_list(self):
-        # Store current selection to restore it after refresh
-        selected_indices = []
-        for item_id in self.routine_tree.selection():
-            selected_indices.append(self.routine_tree.index(item_id))
-
+        selected_indices = [self.routine_tree.index(item_id) for item_id in self.routine_tree.selection()]
         for item in self.routine_tree.get_children():
             self.routine_tree.delete(item)
 
-        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
-        items = routine_data.get('items', [])
-        for i, item in enumerate(items):
-            # Use name and index as a unique tag to avoid issues with duplicate names
-            tag = f"{item.get('name')}||{i}"
-            item_id = self.routine_tree.insert('', 'end', values=(
-                "☰",
-                item.get('type'),
-                item.get('target'),
-                item.get('monitor'),
-                item.get('position')
-            ), tags=(tag,))
+        for idx, item in enumerate(self.routine_store.get_items()):
+            tag = f"{item.get('name')}||{idx}"
+            row_id = self.routine_tree.insert(
+                "",
+                "end",
+                values=(
+                    "☰",
+                    item.get("type"),
+                    item.get("target"),
+                    item.get("monitor"),
+                    item.get("position"),
+                    item.get("delay", 0),
+                ),
+                tags=(tag,),
+            )
+            if idx in selected_indices:
+                self.routine_tree.selection_add(row_id)
 
-            if i in selected_indices:
-                self.routine_tree.selection_add(item_id)
+    def _create_routine(self):
+        name = simpledialog.askstring("New Routine", "Enter routine name:", parent=self.root)
+        if not name:
+            return
+        clean_name = name.strip()
+        if not clean_name:
+            messagebox.showerror("Error", "Routine name cannot be empty.")
+            return
+        if clean_name in self.config_manager.routines:
+            messagebox.showerror("Error", f"Routine '{clean_name}' already exists.")
+            return
+        self.config_manager.routines[clean_name] = {"items": []}
+        self.selected_routine_var.set(clean_name)
+        self.routine_store.routine_name = clean_name
+        self._refresh_routine_selector()
+        self._refresh_routine_list()
+        self._mark_dirty("Routine created (unsaved)")
+
+    def _clone_routine(self):
+        source = self.selected_routine_var.get()
+        if not source:
+            return
+        clone_name = simpledialog.askstring("Clone Routine", f"Enter name for copy of '{source}':", parent=self.root)
+        if not clone_name:
+            return
+        clone_name = clone_name.strip()
+        if not clone_name:
+            return
+        if clone_name in self.config_manager.routines:
+            messagebox.showerror("Error", f"Routine '{clone_name}' already exists.")
+            return
+        import copy
+
+        self.config_manager.routines[clone_name] = copy.deepcopy(self.config_manager.routines[source])
+        self.selected_routine_var.set(clone_name)
+        self.routine_store.routine_name = clone_name
+        self._refresh_routine_selector()
+        self._refresh_routine_list()
+        self._mark_dirty("Routine cloned (unsaved)")
+
+    def _delete_routine(self):
+        name = self.selected_routine_var.get()
+        if not name:
+            return
+        if len(self.config_manager.routines) <= 1:
+            messagebox.showwarning("Warning", "At least one routine must remain.")
+            return
+        if not messagebox.askyesno("Confirm", f"Delete routine '{name}'?"):
+            return
+        del self.config_manager.routines[name]
+        self._refresh_routine_selector()
+        self._refresh_routine_list()
+        self._mark_dirty("Routine deleted (unsaved)")
 
     def _edit_routine_item(self):
         selected = self.routine_tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select an item to edit.")
             return
-
         item_id = selected[0]
-        tags = self.routine_tree.item(item_id, 'tags')
-        if not tags: return
-
-        try:
-            # Extract the original index from the tag (name||index)
-            _, idx_str = tags[0].rsplit("||", 1)
-            idx = int(idx_str)
-        except (ValueError, IndexError):
-            # Fallback to visual index if tag is broken
-            idx = self.routine_tree.index(item_id)
-
-        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
-        items = routine_data.get('items', [])
-
+        idx = self._index_from_tree_item(item_id)
+        items = self.routine_store.get_items()
         if 0 <= idx < len(items):
             self._add_routine_item(edit_index=idx)
+
+    def _duplicate_routine_item(self):
+        selected = self.routine_tree.selection()
+        if not selected:
+            return
+        idx = self._index_from_tree_item(selected[0])
+        items = self.routine_store.get_items()
+        if 0 <= idx < len(items):
+            import copy
+
+            new_item = copy.deepcopy(items[idx])
+            new_item["name"] = f"{new_item.get('name', 'Item')} Copy"
+            self.routine_store.upsert_item(new_item, None)
+            self._refresh_routine_list()
+            self._mark_dirty("Routine item duplicated (unsaved)")
 
     def _add_routine_item(self, edit_index=None):
         dialog = tk.Toplevel(self.root)
         is_edit = edit_index is not None
-        dialog.title("Edit Shortcut" if is_edit else "Add Shortcut")
-        dialog.geometry("400x350")
+        dialog.title("Edit Item" if is_edit else "Add Item")
+        dialog.geometry("480x450")
+        dialog.minsize(440, 420)
 
-        routine_data = self.config_manager.routines.get(self.current_routine_name, {"items": []})
-        old_item = routine_data['items'][edit_index] if is_edit else {}
+        items = self.routine_store.get_items()
+        old_item = items[edit_index] if is_edit else {}
 
-        ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky='e')
-        name_var = tk.StringVar(value=old_item.get('name', ''))
-        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        name_var = tk.StringVar(value=old_item.get("name", ""))
+        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="Type:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
-        type_var = tk.StringVar(value=old_item.get('type', 'app'))
+        ttk.Label(dialog, text="Type:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        type_var = tk.StringVar(value=old_item.get("type", "app"))
         type_combo = ttk.Combobox(dialog, textvariable=type_var, values=["app", "url", "shortcut"], state="readonly")
-        type_combo.grid(row=1, column=1, padx=5, pady=5, sticky='ew')
+        type_combo.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="Target:").grid(row=2, column=0, padx=5, pady=5, sticky='e')
+        ttk.Label(dialog, text="Target:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
         target_frame = ttk.Frame(dialog)
-        target_frame.grid(row=2, column=1, padx=5, pady=5, sticky='ew')
-        target_var = tk.StringVar(value=old_item.get('target', ''))
-        ttk.Entry(target_frame, textvariable=target_var).pack(side='left', expand=True, fill='x')
+        target_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        target_var = tk.StringVar(value=old_item.get("target", ""))
+        ttk.Entry(target_frame, textvariable=target_var).pack(side="left", expand=True, fill="x")
+        browse_btn = ttk.Button(target_frame, text="...", width=3, command=lambda: self._browse_target(name_var, target_var))
+        browse_btn.pack(side="right", padx=2)
 
-        def browse_target():
-            file_path = filedialog.askopenfilename()
-            if file_path:
-                target_var.set(file_path)
-                if not name_var.get():
-                    name_var.set(os.path.basename(file_path).split('.')[0])
+        ttk.Label(
+            dialog,
+            text="Use full file path for best reliability. URLs should start with https://",
+            foreground="#666",
+            font=("", 8),
+        ).grid(row=3, column=1, padx=5, sticky="w")
 
-        browse_btn = ttk.Button(target_frame, text="...", width=3, command=browse_target)
-        browse_btn.pack(side='right', padx=2)
-
-        # Update browse button visibility based on type
-        def on_type_change(event):
+        def on_type_change(_event=None):
             if type_var.get() == "url":
-                browse_btn.state(['disabled'])
+                browse_btn.state(["disabled"])
             else:
-                browse_btn.state(['!disabled'])
+                browse_btn.state(["!disabled"])
+
         type_combo.bind("<<ComboboxSelected>>", on_type_change)
+        on_type_change()
 
-        ttk.Label(dialog, text="Monitor:").grid(row=3, column=0, padx=5, pady=5, sticky='e')
-
+        ttk.Label(dialog, text="Monitor:").grid(row=4, column=0, padx=5, pady=5, sticky="e")
         from src.launcher import Launcher
+
         monitor_options = Launcher.get_monitor_options()
+        monitor_var = tk.StringVar(value=pick_default_monitor_option(monitor_options, old_item.get("monitor")))
+        ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_options, state="readonly").grid(
+            row=4, column=1, padx=5, pady=5, sticky="ew"
+        )
 
-        monitor_var = tk.StringVar()
-        # Find default selection
-        selected_option = monitor_options[0]
+        ttk.Label(dialog, text="Position:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        pos_var = tk.StringVar(value=old_item.get("position", "full"))
+        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right", "top", "bottom"], state="readonly").grid(
+            row=5, column=1, padx=5, pady=5, sticky="ew"
+        )
 
-        current_monitor = old_item.get('monitor')
-        if current_monitor is not None:
-             # Try to find the matching option
-             for opt in monitor_options:
-                 if opt.startswith(f"Monitor {current_monitor}:"):
-                     selected_option = opt
-                     break
-        else:
-            for opt in monitor_options:
-                if "(Primary)" in opt:
-                    selected_option = opt
-                    break
+        ttk.Label(dialog, text="Delay before launch (s):").grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        delay_var = tk.DoubleVar(value=float(old_item.get("delay", 0.0)))
+        ttk.Entry(dialog, textvariable=delay_var).grid(row=6, column=1, padx=5, pady=5, sticky="ew")
 
-        monitor_var.set(selected_option)
-        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_options, state="readonly")
-        monitor_combo.grid(row=3, column=1, padx=5, pady=5, sticky='ew')
+        ttk.Label(dialog, text="Window wait timeout (s):").grid(row=7, column=0, padx=5, pady=5, sticky="e")
+        wait_var = tk.DoubleVar(value=float(old_item.get("window_wait_timeout", 15.0)))
+        ttk.Entry(dialog, textvariable=wait_var).grid(row=7, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="Position:").grid(row=4, column=0, padx=5, pady=5, sticky='e')
-        pos_var = tk.StringVar(value=old_item.get('position', 'full'))
-        ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right", "top", "bottom"], state="readonly").grid(row=4, column=1, padx=5, pady=5, sticky='ew')
+        ttk.Label(dialog, text="CLI Arguments (optional):").grid(row=8, column=0, padx=5, pady=5, sticky="e")
+        args_var = tk.StringVar(value=old_item.get("args", ""))
+        ttk.Entry(dialog, textvariable=args_var).grid(row=8, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="Icon Path:").grid(row=5, column=0, padx=5, pady=5, sticky='e')
+        ttk.Label(dialog, text="Icon Path (optional):").grid(row=9, column=0, padx=5, pady=5, sticky="e")
         icon_frame = ttk.Frame(dialog)
-        icon_frame.grid(row=5, column=1, padx=5, pady=5, sticky='ew')
-        icon_var = tk.StringVar(value=old_item.get('icon', ''))
-        ttk.Entry(icon_frame, textvariable=icon_var).pack(side='left', expand=True, fill='x')
-
-        def browse_icon():
-            icon_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.ico"), ("All files", "*.*")])
-            if icon_path:
-                icon_var.set(icon_path)
-
-        ttk.Button(icon_frame, text="...", width=3, command=browse_icon).pack(side='right', padx=2)
-
-        ttk.Label(dialog, text="Delay before launch (s):").grid(row=6, column=0, padx=5, pady=5, sticky='e')
-        delay_var = tk.DoubleVar(value=old_item.get('delay', 0.0))
-        ttk.Entry(dialog, textvariable=delay_var).grid(row=6, column=1, padx=5, pady=5, sticky='ew')
-
-        ttk.Label(dialog, text="CLI Arguments (optional):").grid(row=7, column=0, padx=5, pady=5, sticky='e')
-        args_var = tk.StringVar(value=old_item.get('args', ''))
-        ttk.Entry(dialog, textvariable=args_var).grid(row=7, column=1, padx=5, pady=5, sticky='ew')
+        icon_frame.grid(row=9, column=1, padx=5, pady=5, sticky="ew")
+        icon_var = tk.StringVar(value=old_item.get("icon", ""))
+        ttk.Entry(icon_frame, textvariable=icon_var).pack(side="left", expand=True, fill="x")
+        ttk.Button(icon_frame, text="...", width=3, command=lambda: self._browse_icon(icon_var)).pack(side="right", padx=2)
 
         dialog.columnconfigure(1, weight=1)
 
         def save_item():
-            # Validate
-            name = name_var.get().strip()
-            target = target_var.get().strip()
-            item_type = type_var.get()
-
-            if not name:
-                messagebox.showerror("Error", "Name is required.")
+            try:
+                warning_message = validate_routine_item_inputs(
+                    name=name_var.get(), item_type=type_var.get(), target=target_var.get()
+                )
+            except UIValidationError as e:
+                messagebox.showerror("Error", str(e))
                 return
-            if not target:
-                messagebox.showerror("Error", "Target is required.")
+            if warning_message and not messagebox.askyesno("Warning", warning_message):
                 return
 
-            if item_type == "url" and not re.match(r'^https?://', target):
-                 if not messagebox.askyesno("Warning", "URL does not start with http:// or https://. Save anyway?"):
-                     return
-            elif item_type in ["app", "shortcut"] and not os.path.exists(target):
-                 # Some special cases like 'discord' might not be full paths
-                 if target.lower() not in ["discord", "spotify"] and not os.path.exists(target):
-                    if not messagebox.askyesno("Warning", f"Path '{target}' does not seem to exist. Save anyway?"):
-                        return
-
-            # Extract monitor index from label (e.g. "Monitor 0: ...")
-            monitor_val = monitor_var.get()
-            if monitor_val.startswith("Monitor "):
-                try:
-                    # Extracts '0' from 'Monitor 0: ...'
-                    monitor_val = int(monitor_val.split(":")[0].split(" ")[1])
-                except (IndexError, ValueError):
-                    monitor_val = 0
-            else:
-                # Fallback for primary/secondary strings if they somehow remain
-                try:
-                    monitor_val = int(monitor_val)
-                except ValueError:
-                    pass
-
-            new_item = {
-                "name": name,
-                "type": item_type,
-                "target": target,
-                "args": args_var.get().strip(),
-                "monitor": monitor_val,
-                "position": pos_var.get(),
-                "delay": delay_var.get(),
-                "icon": icon_var.get().strip()
-            }
-            routine_data = self.config_manager.routines.setdefault(self.current_routine_name, {"items": []})
-            if "items" not in routine_data:
-                routine_data["items"] = []
-
-            if is_edit:
-                logger.info(f"Updating routine item {edit_index}: {new_item['name']}")
-                routine_data["items"][edit_index] = new_item
-            else:
-                logger.info(f"Adding new routine item: {new_item['name']}")
-                routine_data["items"].append(new_item)
-
+            new_item = build_routine_item(
+                name=name_var.get(),
+                item_type=type_var.get(),
+                target=target_var.get(),
+                args=args_var.get(),
+                monitor_value=monitor_var.get(),
+                position=pos_var.get(),
+                delay=delay_var.get(),
+                icon=icon_var.get(),
+                window_wait_timeout=wait_var.get(),
+            )
+            self.routine_store.upsert_item(new_item, edit_index if is_edit else None)
             self._refresh_routine_list()
+            self._mark_dirty("Routine updated (unsaved)")
+            logger.info(
+                "UI_EVENT: routine_item_saved action=%s name=%s monitor=%s",
+                "edit" if is_edit else "add",
+                new_item["name"],
+                parse_monitor_value(monitor_var.get()),
+            )
             dialog.destroy()
 
-        ttk.Button(dialog, text="Save" if is_edit else "Add", command=save_item).grid(row=8, columnspan=2, pady=10)
+        ttk.Button(dialog, text="Save" if is_edit else "Add", command=save_item).grid(row=10, columnspan=2, pady=10)
 
     def _remove_routine_item(self):
         selected = self.routine_tree.selection()
-        if not selected: return
-
-        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
-        items = routine_data.get('items', [])
-
-        for item_id in selected:
-            idx = self.routine_tree.index(item_id)
-            if idx < len(items):
-                del items[idx]
-
+        if not selected:
+            return
+        indices = [self.routine_tree.index(item_id) for item_id in selected]
+        self.routine_store.remove_by_indices(indices)
         self._refresh_routine_list()
+        self._mark_dirty("Routine item removed (unsaved)")
+        logger.info("UI_EVENT: routine_item_removed count=%s", len(indices))
 
     def _update_meter(self):
         if not self._monitoring or not self.root:
             return
-
+        status = self._get_runtime_status()
+        self._update_runtime_status_label(status)
         if not self.detector:
             self.state_label.config(text="NO DETECTOR", foreground="red")
             return
-
         try:
-            # Check if detector has a valid stream/is active
-            if not getattr(self.detector, 'stream', None):
+            if not status.detector_active:
                 self.state_label.config(text="INACTIVE", foreground="gray")
                 self.meter_canvas.delete("all")
                 if self._monitoring:
                     self.root.after(500, self._update_meter)
                 return
 
-            peak = getattr(self.detector, 'last_peak', 0.0)
+            peak = status.peak
             threshold = self.threshold_var.get()
-            state = getattr(self.detector, 'state', 'IDLE')
-            clap_count = getattr(self.detector, 'clap_count', 0)
-
-            # Clear and redraw
+            clap_count = status.clap_count
+            state = status.state
             self.meter_canvas.delete("all")
-
-            # Draw background level
             width = self.meter_canvas.winfo_width()
             level_width = min(width, int(peak * width))
             color = "#00ff00" if peak < threshold else "#ffff00"
-            if peak > 0.8: color = "#ff0000"
-
+            if peak > 0.8:
+                color = "#ff0000"
             self.meter_canvas.create_rectangle(0, 0, level_width, 20, fill=color, outline="")
-
-            # Draw threshold line
             thresh_x = int(threshold * width)
             self.meter_canvas.create_line(thresh_x, 0, thresh_x, 20, fill="white", width=2)
 
-            # Update state label
-            status_text = f"{state}"
-            if clap_count > 0:
-                status_text += f" ({clap_count})"
-            self.state_label.config(text=status_text)
-
-            # Flash if clap detected
-            if clap_count > 0:
-                 self.state_label.config(foreground="orange")
-            else:
-                 self.state_label.config(foreground="")
-
+            human_state, state_color = describe_detector_state(
+                detector_available=status.detector_available,
+                detector_active=status.detector_active,
+                state=state,
+                clap_count=clap_count,
+                peak=peak,
+                threshold=threshold,
+            )
+            self.state_label.config(text=human_state, foreground=state_color)
         except Exception as e:
-            logger.debug(f"Meter update failed: {e}")
+            logger.debug("Meter update failed: %s", e)
 
         if self._monitoring:
             self.root.after(50, self._update_meter)
 
+    def _update_runtime_header(self):
+        snapshot = self._get_runtime_snapshot()
+        text = f"Active routine: {snapshot.active_routine} | Listening: {'On' if snapshot.listening_enabled else 'Paused'}"
+        self.quick_state_label.config(text=text)
+        self.root.after(1000, self._update_runtime_header)
+
     def _on_tree_click(self, event):
         column = self.routine_tree.identify_column(event.x)
         item = self.routine_tree.identify_row(event.y)
-
-        # Only allow dragging from the 'Handle' column (#1)
-        if item and column == '#1':
+        if item and column == "#1":
             self._drag_data["item"] = item
             self._drag_data["dragged"] = False
-            # Add visual feedback
             self.routine_tree.item(item, tags=self.routine_tree.item(item, "tags") + ("dragging",))
 
     def _on_tree_drag(self, event):
         if not self._drag_data["item"]:
             return
-
         self._drag_data["dragged"] = True
         target = self.routine_tree.identify_row(event.y)
         if target and target != self._drag_data["item"]:
-            self.routine_tree.move(self._drag_data["item"], '', self.routine_tree.index(target))
+            self.routine_tree.move(self._drag_data["item"], "", self.routine_tree.index(target))
 
     def _on_tree_motion(self, event):
-        column = self.routine_tree.identify_column(event.x)
-        if column == '#1':
-            self.routine_tree.config(cursor="fleur")
-        else:
-            self.routine_tree.config(cursor="")
+        self.routine_tree.config(cursor="fleur" if self.routine_tree.identify_column(event.x) == "#1" else "")
 
-    def _on_tree_release(self, event):
+    def _on_tree_release(self, _event):
         item = self._drag_data.get("item")
         dragged = self._drag_data.get("dragged")
-
         if item:
-            # Remove visual feedback
             tags = list(self.routine_tree.item(item, "tags"))
             if "dragging" in tags:
                 tags.remove("dragging")
             self.routine_tree.item(item, tags=tuple(tags))
-
         self._drag_data["item"] = None
         self._drag_data["dragged"] = False
-
         if not dragged:
             return
 
-        # Persist the new order to the config manager immediately
-        new_items = []
-        routine_data = self.config_manager.routines.get(self.current_routine_name, {})
-        old_items = routine_data.get('items', [])
-
+        previous_indices = []
         for item_id in self.routine_tree.get_children():
-            tags = self.routine_tree.item(item_id, 'tags')
-            if not tags: continue
-
-            # Find the identifier tag (contains '||')
-            id_tag = None
-            for t in tags:
-                if "||" in t:
-                    id_tag = t
-                    break
-
-            if not id_tag:
+            tag = self._identifier_tag(item_id)
+            if not tag:
                 continue
-
             try:
-                # name||index
-                _, idx_str = id_tag.rsplit("||", 1)
-                idx = int(idx_str)
-                if idx < len(old_items):
-                    new_items.append(old_items[idx])
+                previous_indices.append(int(tag.rsplit("||", 1)[1]))
             except (ValueError, IndexError):
-                logger.warning(f"Could not parse tag during reorder: {id_tag}")
-
-        if new_items or not self.routine_tree.get_children():
-            logger.info(f"Updating routine '{self.current_routine_name}' order.")
-            self.config_manager.routines[self.current_routine_name]['items'] = new_items
-            # Refresh to update the tags (indices) to match the new order
+                logger.warning("Could not parse tag during reorder: %s", tag)
+        if previous_indices or not self.routine_tree.get_children():
+            self.routine_store.reorder_by_previous_indices(previous_indices)
             self._refresh_routine_list()
+            self._mark_dirty("Routine order updated (unsaved)")
+            logger.info("UI_EVENT: routine_reordered")
 
-    def _save_settings(self):
+    def _save_settings(self, close_window):
+        candidate = cloned_config_data(self.config_manager.data)
         try:
-            self.config_manager.data['clap_settings']['threshold'] = self.threshold_var.get()
-            self.config_manager.data['clap_settings']['min_interval'] = self.min_interval_var.get()
-            self.config_manager.data['audio_settings']['enabled'] = self.audio_enabled_var.get()
-            self.config_manager.data['audio_settings']['mode'] = self.audio_mode_var.get()
-            self.config_manager.data['audio_settings']['file_path'] = self.audio_file_var.get()
-            self.config_manager.data['audio_settings']['startup_phrase'] = self.startup_phrase_var.get()
-            self.config_manager.data.setdefault('system', {})
-            self.config_manager.data['system']['startup_delay'] = max(0.0, float(self.startup_delay_var.get()))
-
-            # Update startup setting
-            if sys.platform == "win32" and hasattr(self, 'startup_var'):
-                new_startup_state = self.startup_var.get()
-                logger.info(f"Saving startup setting from UI toggle: requested={new_startup_state}")
-                success, actual_state = apply_startup_state(new_startup_state)
-                self.config_manager.data['system']['run_on_startup'] = actual_state["enabled"]
-                self.startup_var.set(actual_state["enabled"])
-
+            startup_apply_result = None
+            if sys.platform == "win32":
+                requested = self.startup_var.get()
+                logger.info("UI_EVENT: startup_toggle_requested enabled=%s", requested)
+                startup_apply_result = apply_startup_state(requested)
+                success, actual = startup_apply_result
+                self.startup_var.set(actual["enabled"])
                 if not success:
-                    raise RuntimeError(
-                        f"Failed to set startup to {new_startup_state}. Actual system state is {actual_state['enabled']}."
+                    raise RuntimeError(f"Failed to set startup to {requested}. Actual state is {actual['enabled']}.")
+
+            for routine_name, routine_data in self.config_manager.routines.items():
+                duplicates = detect_duplicate_item_names(routine_data.get("items", []))
+                if duplicates:
+                    raise UIValidationError(
+                        f"Routine '{routine_name}' has duplicate item names: {', '.join(duplicates)}."
                     )
 
+            selected_routine = self.selected_routine_var.get() or "morning_routine"
+            form_state = SettingsFormState(
+                threshold=self.threshold_var.get(),
+                min_interval=self.min_interval_var.get(),
+                audio_enabled=self.audio_enabled_var.get(),
+                audio_mode=self.audio_mode_var.get(),
+                audio_file_path=self.audio_file_var.get(),
+                startup_phrase=self.startup_phrase_var.get(),
+                startup_delay=self.startup_delay_var.get(),
+                startup_enabled=self.startup_var.get() if sys.platform == "win32" else None,
+                active_routine=selected_routine,
+            )
+
+            apply_form_state_to_config(self.config_manager, form_state, startup_apply_result=startup_apply_result)
+            validate_full_config_data(self.config_manager.data)
             self.config_manager.save()
-            logger.info("Settings saved to config file.")
+
+            if self.switch_routine_callback:
+                self.switch_routine_callback(selected_routine, source="settings")
+
             if self.on_save_callback:
                 self.on_save_callback()
-            messagebox.showinfo("Success", "Settings saved successfully!")
-            SettingsUI._instance = None
-            self.root.destroy()
+
+            logger.info(
+                "UI_EVENT: settings_applied threshold=%.3f min_interval=%.3f startup_delay=%.2f audio_enabled=%s active_routine=%s",
+                form_state.threshold,
+                form_state.min_interval,
+                form_state.startup_delay,
+                form_state.audio_enabled,
+                form_state.active_routine,
+            )
+            self._mark_clean("Saved and applied")
+            if close_window:
+                messagebox.showinfo("Success", "Settings saved and applied.")
+                self._close_window()
+            else:
+                messagebox.showinfo("Success", "Settings applied.")
         except Exception as e:
-            logger.error(f"Failed to save settings: {e}")
+            self.config_manager.data = candidate
+            logger.error("Failed to save settings: %s", e, exc_info=True)
             messagebox.showerror("Error", f"Failed to save settings: {e}")
+
+    def _reset_form_from_config(self, mark_status=True):
+        if sys.platform == "win32":
+            self._startup_state = get_startup_state()
+
+        state = SettingsFormState.from_config(
+            self.config_manager,
+            startup_enabled=self._startup_state["enabled"] if sys.platform == "win32" else None,
+        )
+        self.threshold_var.set(state.threshold)
+        self.min_interval_var.set(state.min_interval)
+        self.audio_enabled_var.set(state.audio_enabled)
+        self.audio_mode_var.set(state.audio_mode)
+        self.audio_file_var.set(state.audio_file_path)
+        self.startup_phrase_var.set(state.startup_phrase)
+        self.startup_delay_var.set(state.startup_delay)
+        self.selected_routine_var.set(state.active_routine)
+        self.routine_store.routine_name = state.active_routine
+        if sys.platform == "win32":
+            self.startup_var.set(bool(state.startup_enabled))
+
+        self._update_audio_visibility()
+        self._refresh_routine_selector()
+        self._refresh_routine_list()
+        self._mark_clean("Reset to current config")
+        if mark_status:
+            logger.info("UI_EVENT: form_reset")
+
+    def _update_audio_visibility(self):
+        is_enabled = self.audio_enabled_var.get()
+        mode = self.audio_mode_var.get()
+        if mode == "tts":
+            self.phrase_frame.pack(fill="x", padx=5, pady=5)
+        else:
+            self.phrase_frame.pack_forget()
+        if is_enabled and mode == "file":
+            self.audio_file_entry.state(["!disabled"])
+            self.audio_browse_btn.state(["!disabled"])
+        else:
+            self.audio_file_entry.state(["disabled"])
+            self.audio_browse_btn.state(["disabled"])
+        if is_enabled:
+            self.audio_test_btn.state(["!disabled"])
+        else:
+            self.audio_test_btn.state(["disabled"])
+
+    def _browse_audio_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Audio files", "*.mp3 *.wav *.ogg"), ("All files", "*.*")])
+        if file_path:
+            self.audio_file_var.set(file_path)
+
+    def _test_audio(self):
+        from src.audio import AudioEngine
+
+        old_settings = {
+            "enabled": self.config_manager.audio_settings.get("enabled"),
+            "mode": self.config_manager.audio_settings.get("mode"),
+            "file_path": self.config_manager.audio_settings.get("file_path"),
+        }
+        try:
+            self.config_manager.audio_settings["enabled"] = True
+            self.config_manager.audio_settings["mode"] = self.audio_mode_var.get()
+            self.config_manager.audio_settings["file_path"] = self.audio_file_var.get()
+            temp_engine = AudioEngine(self.config_manager)
+            temp_engine.enabled = True
+            temp_engine.maybe_initialize()
+            if self.audio_mode_var.get() == "tts":
+                temp_engine.speak(self.startup_phrase_var.get())
+            else:
+                temp_engine.play_file(self.audio_file_var.get())
+            logger.info("UI_EVENT: audio_test_triggered mode=%s", self.audio_mode_var.get())
+        finally:
+            self.config_manager.audio_settings.update(old_settings)
+
+    def _test_active_routine(self):
+        if self.trigger_routine_callback:
+            self.trigger_routine_callback(source="settings_test")
+            self._mark_clean("Active routine triggered")
+        else:
+            messagebox.showinfo("Info", "Routine trigger is not available right now.")
+
+    def _trigger_selected_routine(self):
+        routine = self.selected_routine_var.get()
+        if not routine:
+            return
+        if self.switch_routine_callback:
+            self.switch_routine_callback(routine, source="settings_manual_select")
+        if self.trigger_routine_callback:
+            self.trigger_routine_callback(source="settings_selected_routine")
+
+    def _open_guided_calibration(self):
+        if not self.detector or not getattr(self.detector, "stream", None):
+            messagebox.showwarning(
+                "Calibration Unavailable",
+                "Microphone stream is not active yet. Wait a moment and try again.",
+            )
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Guided Calibration")
+        dialog.geometry("520x330")
+        dialog.minsize(500, 300)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        title = ttk.Label(dialog, text="Guided Clap Calibration", font=("", 11, "bold"))
+        title.pack(anchor="w", padx=12, pady=(12, 6))
+        info_var = tk.StringVar(value="Step 1/2: Stay quiet for 3 seconds to measure ambient noise.")
+        ttk.Label(dialog, textvariable=info_var, wraplength=480).pack(anchor="w", padx=12, pady=4)
+        progress = ttk.Progressbar(dialog, mode="determinate", maximum=100)
+        progress.pack(fill="x", padx=12, pady=8)
+        result_box = tk.Text(dialog, height=8, wrap="word")
+        result_box.pack(fill="both", expand=True, padx=12, pady=6)
+        result_box.insert("1.0", "Press Start to begin.")
+        result_box.config(state="disabled")
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill="x", padx=12, pady=(0, 12))
+        start_btn = ttk.Button(buttons, text="Start", width=12)
+        start_btn.pack(side="left")
+        apply_btn = ttk.Button(buttons, text="Apply Recommended", width=18, state="disabled")
+        apply_btn.pack(side="right")
+        ttk.Button(buttons, text="Close", command=dialog.destroy).pack(side="right", padx=8)
+
+        ambient_samples = []
+        clap_peaks = []
+        clap_intervals = []
+        last_clap_ts = None
+        recommendation = {"value": None}
+
+        def write_result(text):
+            result_box.config(state="normal")
+            result_box.delete("1.0", "end")
+            result_box.insert("1.0", text)
+            result_box.config(state="disabled")
+
+        def sample_for(duration_s, on_sample, on_done, started=None):
+            start_t = started if started is not None else time.monotonic()
+            elapsed = time.monotonic() - start_t
+            pct = min(100, int((elapsed / duration_s) * 100))
+            progress["value"] = pct
+            on_sample()
+            if elapsed >= duration_s:
+                on_done()
+                return
+            dialog.after(60, lambda: sample_for(duration_s, on_sample, on_done, start_t))
+
+        def do_ambient_phase():
+            info_var.set("Step 1/2: Measuring ambient noise...")
+            progress["value"] = 0
+
+            def on_sample():
+                ambient_samples.append(float(getattr(self.detector, "last_peak", 0.0)))
+
+            def done():
+                do_clap_phase()
+
+            sample_for(3.0, on_sample, done)
+
+        def do_clap_phase():
+            info_var.set("Step 2/2: Clap naturally 4 to 6 times in front of your microphone.")
+            progress["value"] = 0
+
+            baseline = max(ambient_samples) if ambient_samples else 0.01
+            dynamic_gate = max(self.threshold_var.get() * 0.9, baseline * 2.2, 0.04)
+
+            def on_sample():
+                nonlocal last_clap_ts
+                peak = float(getattr(self.detector, "last_peak", 0.0))
+                now = time.monotonic()
+                if peak >= dynamic_gate:
+                    if last_clap_ts is None or (now - last_clap_ts) > 0.18:
+                        clap_peaks.append(peak)
+                        if last_clap_ts is not None:
+                            clap_intervals.append(now - last_clap_ts)
+                        last_clap_ts = now
+
+            def done():
+                rec = recommend_clap_settings(
+                    ambient_samples,
+                    clap_peaks,
+                    clap_intervals,
+                    current_threshold=self.threshold_var.get(),
+                    current_min_interval=self.min_interval_var.get(),
+                )
+                recommendation["value"] = rec
+                info_var.set("Calibration complete.")
+                write_result(
+                    f"{rec.summary}\n\nDetected clap samples: {len(clap_peaks)}\n"
+                    f"Recommended threshold: {rec.threshold}\n"
+                    f"Recommended cooldown: {rec.min_interval}s"
+                )
+                apply_btn.state(["!disabled"])
+                logger.info(
+                    "UI_EVENT: calibration_completed threshold=%.3f min_interval=%.3f confidence=%s claps=%s",
+                    rec.threshold,
+                    rec.min_interval,
+                    rec.confidence,
+                    len(clap_peaks),
+                )
+
+            sample_for(7.0, on_sample, done)
+
+        def start():
+            start_btn.state(["disabled"])
+            write_result("Collecting ambient and clap samples...")
+            do_ambient_phase()
+
+        def apply_recommendation():
+            rec = recommendation["value"]
+            if not rec:
+                return
+            self.threshold_var.set(rec.threshold)
+            self.min_interval_var.set(rec.min_interval)
+            self._mark_dirty("Calibration applied (unsaved)")
+            messagebox.showinfo(
+                "Calibration Applied",
+                "Recommended sensitivity values were applied. Click Apply or Save to persist them.",
+                parent=dialog,
+            )
+
+        start_btn.config(command=start)
+        apply_btn.config(command=apply_recommendation)
+
+    def _open_logs(self):
+        log_dir = get_log_dir()
+        if not os.path.exists(log_dir):
+            messagebox.showinfo("Information", f"Log directory does not exist yet: {log_dir}")
+            return
+        if sys.platform == "win32":
+            os.startfile(log_dir)
+        else:
+            subprocess.Popen(["xdg-open", log_dir])
+
+    def _get_runtime_status(self):
+        if not self.detector:
+            return RuntimeStatus(False, False, "NO DETECTOR", 0, 0.0)
+        return RuntimeStatus(
+            detector_available=True,
+            detector_active=bool(getattr(self.detector, "stream", None)),
+            state=str(getattr(self.detector, "state", "IDLE")),
+            clap_count=int(getattr(self.detector, "clap_count", 0)),
+            peak=float(getattr(self.detector, "last_peak", 0.0)),
+        )
+
+    def _get_runtime_snapshot(self):
+        if self.runtime_snapshot_provider:
+            return self.runtime_snapshot_provider()
+        return AppRuntimeSnapshot(
+            listening_enabled=True,
+            active_routine=self.selected_routine_var.get() or "morning_routine",
+            runtime_ready=bool(self.detector),
+        )
+
+    def _update_runtime_status_label(self, status):
+        if not self.runtime_status_label:
+            return
+        human_state, color = describe_detector_state(
+            detector_available=status.detector_available,
+            detector_active=status.detector_active,
+            state=status.state,
+            clap_count=status.clap_count,
+            peak=status.peak,
+            threshold=self.threshold_var.get(),
+        )
+        self.runtime_status_label.config(
+            text=f"Runtime status: {human_state} | peak={status.peak:.3f} | claps={status.clap_count}",
+            foreground=color,
+        )
+
+    def _get_microphone_label(self):
+        if not pyaudio:
+            return "Note: PyAudio not detected. Clap detection may be unavailable."
+        try:
+            with PYAUDIO_LOCK:
+                p = pyaudio.PyAudio()
+                dev = p.get_default_input_device_info()
+                name = dev.get("name", "Default")
+                p.terminate()
+            return f"Mic: {name}"
+        except Exception:
+            return "Mic: Default system microphone"
+
+    def _browse_target(self, name_var, target_var):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            target_var.set(file_path)
+            if not name_var.get():
+                name_var.set(os.path.basename(file_path).split(".")[0])
+
+    def _browse_icon(self, icon_var):
+        icon_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.ico"), ("All files", "*.*")]
+        )
+        if icon_path:
+            icon_var.set(icon_path)
+
+    def _identifier_tag(self, item_id):
+        for tag in self.routine_tree.item(item_id, "tags"):
+            if "||" in tag:
+                return tag
+        return None
+
+    def _index_from_tree_item(self, item_id):
+        tag = self._identifier_tag(item_id)
+        if not tag:
+            return self.routine_tree.index(item_id)
+        try:
+            return int(tag.rsplit("||", 1)[1])
+        except (ValueError, IndexError):
+            return self.routine_tree.index(item_id)
+
+    def _close_window(self):
+        self._monitoring = False
+        SettingsUI._instance = None
+        if self.root:
+            self.root.destroy()
+        logger.info("UI_EVENT: settings_window_closed")

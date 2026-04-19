@@ -67,7 +67,8 @@ DEFAULT_CONFIG = {
     },
     "system": {
         "run_on_startup": None,
-        "startup_delay": 0.0
+        "startup_delay": 0.0,
+        "active_routine": "morning_routine",
     },
     "logging": {
         "level": "INFO",
@@ -148,6 +149,15 @@ class Config:
                         items.append(new_item)
                     config["routines"][name] = {"items": items}
 
+        system = config.setdefault("system", {})
+        if "active_routine" not in system:
+            routines = config.get("routines", {})
+            if isinstance(routines, dict) and routines:
+                first_routine_name = next(iter(routines.keys()))
+                system["active_routine"] = first_routine_name
+            else:
+                system["active_routine"] = "morning_routine"
+
     def save(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(self.data, f, default_flow_style=False)
@@ -169,7 +179,7 @@ class Config:
 
     @property
     def system_settings(self):
-        return self.data.get("system", {"run_on_startup": None, "startup_delay": 0.0})
+        return self.data.get("system", {"run_on_startup": None, "startup_delay": 0.0, "active_routine": "morning_routine"})
 
     def _deep_merge(self, base, update):
         for key, value in update.items():

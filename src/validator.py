@@ -22,7 +22,7 @@ def validate_config(data):
     _validate_clap_settings(data.get("clap_settings"))
     _validate_routines(data.get("routines"))
     _validate_audio_settings(data.get("audio_settings"))
-    _validate_system_settings(data.get("system"))
+    _validate_system_settings(data.get("system"), data.get("routines"))
 
 
 def _validate_clap_settings(settings):
@@ -142,7 +142,7 @@ def _validate_audio_settings(settings):
             logger.warning("Audio file not found: %s", file_path)
 
 
-def _validate_system_settings(settings):
+def _validate_system_settings(settings, routines):
     if settings is None:
         return
     if not isinstance(settings, dict):
@@ -156,6 +156,14 @@ def _validate_system_settings(settings):
         delay = settings["startup_delay"]
         if not isinstance(delay, (int, float)) or delay < 0:
             raise ConfigValidationError("system.startup_delay must be a non-negative number.")
+    if "active_routine" in settings:
+        routine_name = settings["active_routine"]
+        if not isinstance(routine_name, str) or not routine_name.strip():
+            raise ConfigValidationError("system.active_routine must be a non-empty string.")
+        if isinstance(routines, dict) and routines and routine_name not in routines:
+            raise ConfigValidationError(
+                f"system.active_routine '{routine_name}' does not exist in routines."
+            )
 
 
 def _require_number(settings, key, min_value, max_value, context, integer=False):
