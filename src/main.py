@@ -276,6 +276,7 @@ class JarvisApp:
             self.on_trigger_routine(source="tray_manual")
 
         def on_settings(icon, item):
+            self.logger.info("EVENT: tray_settings_clicked")
             self.show_settings()
 
         def on_toggle_listening(icon, item):

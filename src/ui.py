@@ -68,13 +68,16 @@ class SettingsUI:
 
     def open(self):
         if SettingsUI._instance:
+            logger.info("UI_EVENT: settings_window_reuse_requested")
             try:
                 SettingsUI._instance.after(0, lambda: SettingsUI._instance.deiconify())
                 SettingsUI._instance.after(10, lambda: SettingsUI._instance.lift())
                 SettingsUI._instance.after(20, lambda: SettingsUI._instance.focus_force())
             except Exception:
+                logger.warning("UI_EVENT: existing_settings_window_invalid_resetting_singleton", exc_info=True)
                 SettingsUI._instance = None
             if SettingsUI._instance:
+                logger.info("UI_EVENT: settings_window_reused")
                 return
 
         try:
@@ -114,9 +117,18 @@ class SettingsUI:
             self.notebook = ttk.Notebook(self.root)
             self.notebook.grid(row=1, column=0, sticky="nsew", padx=15, pady=10)
 
+            logger.info("UI_EVENT: building_general_tab")
             self._create_general_tab()
+            logger.info("UI_EVENT: building_routines_tab")
             self._create_routines_tab()
+            logger.info("UI_EVENT: building_advanced_tab")
             self._create_advanced_tab()
+            logger.info("UI_EVENT: tabs_built")
+
+            # Important: bind/reset only after all tabs/widgets exist.
+            self._bind_dirty_tracking()
+            self._reset_form_from_config(mark_status=False)
+            logger.info("UI_EVENT: initial_form_state_loaded")
 
             footer = ttk.Frame(self.root)
             footer.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
@@ -148,7 +160,9 @@ class SettingsUI:
 
             self._mark_clean("Ready")
             self.root.after(500, self._update_runtime_header)
+            logger.info("UI_EVENT: settings_window_mainloop_start")
             self.root.mainloop()
+            logger.info("UI_EVENT: settings_window_mainloop_end")
         except Exception as e:
             logger.error("Failed to open Settings UI: %s", e, exc_info=True)
             SettingsUI._instance = None
@@ -327,9 +341,6 @@ class SettingsUI:
         quick_row.pack(fill="x", padx=5, pady=5)
         ttk.Button(quick_row, text="Open Logs Folder", style="Secondary.TButton", command=self._open_logs).pack(side="left")
         ttk.Button(quick_row, text="Run Active Routine Now", style="Secondary.TButton", command=self._test_active_routine).pack(side="left", padx=8)
-
-        self._bind_dirty_tracking()
-        self._reset_form_from_config(mark_status=False)
 
     def _create_routines_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -953,6 +964,13 @@ class SettingsUI:
         self.audio_file_var.set(state.audio_file_path)
         self.startup_phrase_var.set(state.startup_phrase)
         self.startup_delay_var.set(state.startup_delay)
+        if not hasattr(self, "selected_routine_var"):
+            # Guard against partial initialization; caller should retry once routine tab is ready.
+            logger.warning("UI_EVENT: reset_form_skipped reason=routine_controls_not_ready")
+            self._update_audio_visibility()
+            self._sync_slider_labels()
+            return
+
         self.selected_routine_var.set(state.active_routine)
         self.routine_store.routine_name = state.active_routine
         if sys.platform == "win32":
