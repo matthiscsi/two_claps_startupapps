@@ -107,6 +107,7 @@ UI modules:
 - `src/ui_logic.py`: UI-side validation, monitor parsing, config-apply helpers.
 - `src/ui_routines.py`: routine item store operations (add/edit/remove/reorder).
 - `src/ui_layout.py`: scroll-safe settings layout helpers for DPI/smaller displays.
+- `src/ui_theme.py`: visual style tokens and lightweight tooltip helper.
 
 ### Extension Points
 
@@ -118,7 +119,9 @@ UI modules:
 ## Settings Experience
 
 - The settings window now keeps action buttons visible and uses scrollable tab content.
-- General tab provides plain-language clap controls plus live state (`Listening`, `Noise Too Low`, `Clap Detected`, `Cooldown`, `Ignored Noise`, `Device Error`).
+- The window is split into `General`, `Routines`, and `Advanced` tabs.
+- General tab uses slider-based clap controls with live values and helper text.
+- Live detector state is presented in plain language (`Listening`, `Noise Too Low`, `Too Loud`, `Clap Detected`, `Cooldown`, `Ignored Noise`, `Device Error`).
 - Guided Calibration:
   - Measures ambient peaks.
   - Collects clap samples.
@@ -129,6 +132,7 @@ UI modules:
   - Creating, cloning, deleting routines.
   - Duplicating items.
   - Triggering selected routine immediately.
+- Advanced tab provides troubleshooting guidance and quick access to diagnostics.
 
 ## CLI
 

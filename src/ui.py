@@ -12,6 +12,7 @@ from src.config import get_resource_path
 from src.logger import get_log_dir
 from src.startup_helper import apply_startup_state, get_startup_state
 from src.ui_layout import ScrollableFrame, preferred_window_geometry
+from src.ui_theme import add_tooltip, apply_theme
 from src.ui_logic import (
     UIValidationError,
     apply_form_state_to_config,
@@ -63,6 +64,7 @@ class SettingsUI:
         self._dirty = False
         self._startup_state = {"enabled": False, "command": None}
         self.routine_store = RoutineStore(self.config_manager.routines, routine_name="morning_routine")
+        self.empty_state_label = None
 
     def open(self):
         if SettingsUI._instance:
@@ -92,7 +94,7 @@ class SettingsUI:
             self.root.protocol("WM_DELETE_WINDOW", self._close_window)
 
             style = ttk.Style()
-            style.configure("Routine.Treeview", rowheight=30)
+            apply_theme(style)
 
             self.root.grid_rowconfigure(1, weight=1)
             self.root.grid_columnconfigure(0, weight=1)
@@ -114,6 +116,7 @@ class SettingsUI:
 
             self._create_general_tab()
             self._create_routines_tab()
+            self._create_advanced_tab()
 
             footer = ttk.Frame(self.root)
             footer.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
@@ -124,14 +127,24 @@ class SettingsUI:
 
             button_box = ttk.Frame(footer)
             button_box.grid(row=0, column=1, sticky="e")
-            ttk.Button(button_box, text="Apply", command=lambda: self._save_settings(close_window=False)).pack(
+            ttk.Button(
+                button_box,
+                text="Apply Changes",
+                style="Secondary.TButton",
+                command=lambda: self._save_settings(close_window=False),
+            ).pack(
                 side="right", padx=5
             )
-            ttk.Button(button_box, text="Save", command=lambda: self._save_settings(close_window=True)).pack(
+            ttk.Button(
+                button_box,
+                text="Save Settings",
+                style="Primary.TButton",
+                command=lambda: self._save_settings(close_window=True),
+            ).pack(
                 side="right", padx=5
             )
-            ttk.Button(button_box, text="Reset", command=self._reset_form_from_config).pack(side="right", padx=5)
-            ttk.Button(button_box, text="Cancel", command=self._close_window).pack(side="right", padx=5)
+            ttk.Button(button_box, text="Reset", style="Secondary.TButton", command=self._reset_form_from_config).pack(side="right", padx=5)
+            ttk.Button(button_box, text="Cancel", style="Secondary.TButton", command=self._close_window).pack(side="right", padx=5)
 
             self._mark_clean("Ready")
             self.root.after(500, self._update_runtime_header)
@@ -161,53 +174,89 @@ class SettingsUI:
 
         self.threshold_var = tk.DoubleVar()
         self.min_interval_var = tk.DoubleVar()
+        self.threshold_display_var = tk.StringVar(value="0.15")
+        self.min_interval_display_var = tk.StringVar(value="0.20 s")
 
-        ttk.Label(clap_frame, text="Sensitivity (Threshold):").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(clap_frame, textvariable=self.threshold_var).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Label(clap_frame, text="How easy should a clap trigger?", style="SectionTitle.TLabel").grid(
+            row=0, column=0, padx=8, pady=(8, 2), sticky="w"
+        )
+        threshold_row = ttk.Frame(clap_frame)
+        threshold_row.grid(row=0, column=1, padx=8, pady=(8, 2), sticky="ew")
+        threshold_row.columnconfigure(0, weight=1)
+        self.threshold_scale = ttk.Scale(
+            threshold_row,
+            orient="horizontal",
+            from_=0.05,
+            to=0.85,
+            variable=self.threshold_var,
+            command=lambda _v: self._sync_slider_labels(),
+        )
+        self.threshold_scale.grid(row=0, column=0, sticky="ew")
+        ttk.Label(threshold_row, textvariable=self.threshold_display_var, width=8).grid(row=0, column=1, padx=(8, 0))
         ttk.Label(
-            clap_frame, text="Higher value = fewer accidental triggers", foreground="#666", font=("", 8)
-        ).grid(row=1, column=1, padx=5, sticky="w")
+            clap_frame,
+            text="Lower = more sensitive. Higher = fewer accidental triggers from typing/desk noise.",
+            style="Hint.TLabel",
+        ).grid(row=1, column=1, padx=8, sticky="w")
 
-        ttk.Label(clap_frame, text="Cooldown Between Peaks (s):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        ttk.Entry(clap_frame, textvariable=self.min_interval_var).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Label(clap_frame, text="Cooldown after one clap", style="SectionTitle.TLabel").grid(
+            row=2, column=0, padx=8, pady=(10, 2), sticky="w"
+        )
+        cooldown_row = ttk.Frame(clap_frame)
+        cooldown_row.grid(row=2, column=1, padx=8, pady=(10, 2), sticky="ew")
+        cooldown_row.columnconfigure(0, weight=1)
+        self.min_interval_scale = ttk.Scale(
+            cooldown_row,
+            orient="horizontal",
+            from_=0.10,
+            to=1.20,
+            variable=self.min_interval_var,
+            command=lambda _v: self._sync_slider_labels(),
+        )
+        self.min_interval_scale.grid(row=0, column=0, sticky="ew")
+        ttk.Label(cooldown_row, textvariable=self.min_interval_display_var, width=8).grid(row=0, column=1, padx=(8, 0))
         ttk.Label(
-            clap_frame, text="Prevents one clap from counting twice", foreground="#666", font=("", 8)
-        ).grid(row=3, column=1, padx=5, sticky="w")
+            clap_frame,
+            text="Longer cooldown prevents one clap echo from being counted twice.",
+            style="Hint.TLabel",
+        ).grid(row=3, column=1, padx=8, sticky="w")
 
         button_row = ttk.Frame(clap_frame)
-        button_row.grid(row=4, column=0, columnspan=2, sticky="w", padx=5, pady=(8, 2))
-        ttk.Button(button_row, text="Guided Calibration...", command=self._open_guided_calibration).pack(
+        button_row.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 2))
+        calibrate_btn = ttk.Button(button_row, text="Calibrate Microphone...", style="Primary.TButton", command=self._open_guided_calibration)
+        calibrate_btn.pack(
             side="left", padx=(0, 8)
         )
         ttk.Label(
             button_row,
-            text="Recommended for first setup and microphone changes.",
-            foreground="#666",
+            text="Measures room noise and your clap strength, then recommends settings.",
+            style="Hint.TLabel",
         ).pack(side="left")
+        add_tooltip(calibrate_btn, "Guided calibration takes about 10 seconds and is recommended on first run.")
 
         device_text = self._get_microphone_label()
         device_color = "red" if "not detected" in device_text.lower() else "#444"
         ttk.Label(clap_frame, text=device_text, foreground=device_color, font=("", 8, "italic")).grid(
-            row=5, column=0, columnspan=2, padx=5, pady=3, sticky="w"
+            row=5, column=0, columnspan=2, padx=8, pady=4, sticky="w"
         )
 
         meter_frame = ttk.Frame(clap_frame)
         meter_frame.grid(row=6, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
         meter_frame.columnconfigure(1, weight=1)
-        ttk.Label(meter_frame, text="Mic Level:").grid(row=0, column=0, padx=5, sticky="w")
-        self.meter_canvas = tk.Canvas(meter_frame, height=20, bg="#222")
+        ttk.Label(meter_frame, text="Mic Input:", style="SectionTitle.TLabel").grid(row=0, column=0, padx=5, sticky="w")
+        self.meter_canvas = tk.Canvas(meter_frame, height=22, bg="#1E1E1E", highlightthickness=0)
         self.meter_canvas.grid(row=0, column=1, padx=5, sticky="ew")
         self.state_label = ttk.Label(meter_frame, text="IDLE", width=16)
         self.state_label.grid(row=0, column=2, padx=5)
 
-        self.runtime_status_label = ttk.Label(clap_frame, text="Runtime status: initializing...", foreground="#555")
+        self.runtime_status_label = ttk.Label(clap_frame, text="Runtime status: initializing...", style="Status.TLabel")
         self.runtime_status_label.grid(row=7, column=0, columnspan=2, padx=5, pady=(0, 6), sticky="w")
 
         if self.detector:
             self._monitoring = True
             self.root.after(100, self._update_meter)
 
-        audio_frame = ttk.LabelFrame(content, text="Audio / TTS")
+        audio_frame = ttk.LabelFrame(content, text="Voice & Sound Feedback")
         audio_frame.pack(fill="x", padx=10, pady=8)
 
         self.audio_enabled_var = tk.BooleanVar()
@@ -215,15 +264,15 @@ class SettingsUI:
         self.audio_file_var = tk.StringVar()
         self.startup_phrase_var = tk.StringVar()
 
-        ttk.Checkbutton(audio_frame, text="Enable Jarvis feedback", variable=self.audio_enabled_var).pack(
+        ttk.Checkbutton(audio_frame, text="Enable voice/sound feedback", variable=self.audio_enabled_var).pack(
             anchor="w", padx=5, pady=5
         )
 
         mode_frame = ttk.Frame(audio_frame)
         mode_frame.pack(fill="x", padx=5, pady=5)
-        ttk.Label(mode_frame, text="Mode:").pack(side="left", padx=5)
-        ttk.Radiobutton(mode_frame, text="TTS", variable=self.audio_mode_var, value="tts").pack(side="left", padx=5)
-        ttk.Radiobutton(mode_frame, text="Audio File", variable=self.audio_mode_var, value="file").pack(
+        ttk.Label(mode_frame, text="Feedback Type:").pack(side="left", padx=5)
+        ttk.Radiobutton(mode_frame, text="Spoken text (TTS)", variable=self.audio_mode_var, value="tts").pack(side="left", padx=5)
+        ttk.Radiobutton(mode_frame, text="Play audio file", variable=self.audio_mode_var, value="file").pack(
             side="left", padx=5
         )
 
@@ -234,18 +283,19 @@ class SettingsUI:
         self.audio_file_entry.pack(side="left", expand=True, fill="x", padx=5)
         self.audio_browse_btn = ttk.Button(self.file_frame, text="...", width=3, command=self._browse_audio_file)
         self.audio_browse_btn.pack(side="left", padx=2)
-        self.audio_test_btn = ttk.Button(self.file_frame, text="Test", command=self._test_audio)
+        self.audio_test_btn = ttk.Button(self.file_frame, text="Test Audio", style="Secondary.TButton", command=self._test_audio)
         self.audio_test_btn.pack(side="left", padx=2)
+        add_tooltip(self.audio_test_btn, "Plays your current feedback mode without saving settings.")
 
         self.phrase_frame = ttk.Frame(audio_frame)
         self.phrase_frame.pack(fill="x", padx=5, pady=5)
-        ttk.Label(self.phrase_frame, text="Startup Phrase:").pack(anchor="w", padx=5)
+        ttk.Label(self.phrase_frame, text="Spoken Phrase:").pack(anchor="w", padx=5)
         ttk.Entry(self.phrase_frame, textvariable=self.startup_phrase_var).pack(fill="x", padx=5, pady=5)
 
         self.audio_mode_var.trace_add("write", lambda *_: self._update_audio_visibility())
         self.audio_enabled_var.trace_add("write", lambda *_: self._update_audio_visibility())
 
-        system_frame = ttk.LabelFrame(content, text="System")
+        system_frame = ttk.LabelFrame(content, text="Startup & Quick Actions")
         system_frame.pack(fill="x", padx=10, pady=8)
 
         self.startup_var = tk.BooleanVar(value=False)
@@ -253,18 +303,30 @@ class SettingsUI:
             self._startup_state = get_startup_state()
             self.startup_var.set(self._startup_state["enabled"])
             self.startup_var.trace_add("write", lambda *_: self._mark_dirty("Startup preference changed"))
-            ttk.Checkbutton(system_frame, text="Run on Windows startup", variable=self.startup_var).pack(
+            startup_check = ttk.Checkbutton(system_frame, text="Launch Jarvis when Windows starts", variable=self.startup_var)
+            startup_check.pack(
                 anchor="w", padx=5, pady=5
             )
+            add_tooltip(startup_check, "Registers Jarvis in your Windows user startup list.")
 
         self.startup_delay_var = tk.DoubleVar()
-        ttk.Label(system_frame, text="Startup delay (seconds):").pack(anchor="w", padx=5, pady=(5, 0))
-        ttk.Entry(system_frame, textvariable=self.startup_delay_var).pack(anchor="w", padx=5, pady=(0, 5))
+        ttk.Label(system_frame, text="Delay before listening starts (seconds):").pack(anchor="w", padx=5, pady=(5, 0))
+        self.startup_delay_scale = ttk.Scale(
+            system_frame,
+            orient="horizontal",
+            from_=0,
+            to=30,
+            variable=self.startup_delay_var,
+            command=lambda _v: self._sync_slider_labels(),
+        )
+        self.startup_delay_scale.pack(fill="x", padx=5, pady=(0, 3))
+        self.startup_delay_display_var = tk.StringVar(value="0.0 s")
+        ttk.Label(system_frame, textvariable=self.startup_delay_display_var, style="Hint.TLabel").pack(anchor="w", padx=5, pady=(0, 5))
 
         quick_row = ttk.Frame(system_frame)
         quick_row.pack(fill="x", padx=5, pady=5)
-        ttk.Button(quick_row, text="Open Logs Folder", command=self._open_logs).pack(side="left")
-        ttk.Button(quick_row, text="Test Active Routine Now", command=self._test_active_routine).pack(side="left", padx=8)
+        ttk.Button(quick_row, text="Open Logs Folder", style="Secondary.TButton", command=self._open_logs).pack(side="left")
+        ttk.Button(quick_row, text="Run Active Routine Now", style="Secondary.TButton", command=self._test_active_routine).pack(side="left", padx=8)
 
         self._bind_dirty_tracking()
         self._reset_form_from_config(mark_status=False)
@@ -283,21 +345,20 @@ class SettingsUI:
         top_row.pack(fill="x", padx=10, pady=(10, 4))
         top_row.columnconfigure(1, weight=1)
 
-        ttk.Label(top_row, text="Routine:").grid(row=0, column=0, sticky="w")
+        ttk.Label(top_row, text="Active Routine:", style="SectionTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.selected_routine_var = tk.StringVar()
         self.routine_selector = ttk.Combobox(top_row, textvariable=self.selected_routine_var, state="readonly")
         self.routine_selector.grid(row=0, column=1, sticky="ew", padx=6)
         self.routine_selector.bind("<<ComboboxSelected>>", self._on_routine_changed)
 
-        ttk.Button(top_row, text="New", command=self._create_routine).grid(row=0, column=2, padx=2)
-        ttk.Button(top_row, text="Clone", command=self._clone_routine).grid(row=0, column=3, padx=2)
-        ttk.Button(top_row, text="Delete", command=self._delete_routine).grid(row=0, column=4, padx=2)
+        ttk.Button(top_row, text="New", style="Secondary.TButton", command=self._create_routine).grid(row=0, column=2, padx=2)
+        ttk.Button(top_row, text="Clone", style="Secondary.TButton", command=self._clone_routine).grid(row=0, column=3, padx=2)
+        ttk.Button(top_row, text="Delete", style="Secondary.TButton", command=self._delete_routine).grid(row=0, column=4, padx=2)
 
         helper = ttk.Label(
             content,
             text="Drag items by the handle (☰) to reorder launch sequence.",
-            font=("", 9, "italic"),
-            foreground="#666",
+            style="Hint.TLabel",
         )
         helper.pack(anchor="w", padx=10, pady=(2, 2))
 
@@ -315,16 +376,16 @@ class SettingsUI:
         self.routine_tree.tag_configure("dragging", background="#e1f5fe")
         self.routine_tree.heading("Handle", text="")
         self.routine_tree.column("Handle", width=40, anchor="center", stretch=False)
-        self.routine_tree.heading("Type", text="Type")
-        self.routine_tree.column("Type", width=80)
-        self.routine_tree.heading("Path", text="Target")
-        self.routine_tree.column("Path", width=280)
+        self.routine_tree.heading("Type", text="Kind")
+        self.routine_tree.column("Type", width=120)
+        self.routine_tree.heading("Path", text="What to launch")
+        self.routine_tree.column("Path", width=300)
         self.routine_tree.heading("Monitor", text="Monitor")
         self.routine_tree.column("Monitor", width=80)
-        self.routine_tree.heading("Position", text="Position")
+        self.routine_tree.heading("Position", text="Layout")
         self.routine_tree.column("Position", width=80)
-        self.routine_tree.heading("Delay", text="Delay")
-        self.routine_tree.column("Delay", width=70)
+        self.routine_tree.heading("Delay", text="Delay (s)")
+        self.routine_tree.column("Delay", width=80)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.routine_tree.yview)
         self.routine_tree.configure(yscrollcommand=scrollbar.set)
@@ -338,16 +399,73 @@ class SettingsUI:
         self.routine_tree.bind("<Leave>", lambda e: self.routine_tree.config(cursor=""))
         self._drag_data = {"item": None, "dragged": False}
 
+        self.empty_state_label = ttk.Label(
+            content,
+            text="No items yet. Click “Add Item” to build your routine.",
+            style="Hint.TLabel",
+        )
+        self.empty_state_label.pack(anchor="w", padx=12, pady=(0, 8))
+
         btn_frame = ttk.Frame(content)
         btn_frame.pack(fill="x", padx=10, pady=(6, 15))
-        ttk.Button(btn_frame, text="Add Item", command=self._add_routine_item).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Edit Item", command=self._edit_routine_item).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Duplicate Item", command=self._duplicate_routine_item).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Remove Item", command=self._remove_routine_item).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Trigger Selected Routine", command=self._trigger_selected_routine).pack(side="right", padx=5)
+        ttk.Button(btn_frame, text="Add Item", style="Secondary.TButton", command=self._add_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Edit Item", style="Secondary.TButton", command=self._edit_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Duplicate Item", style="Secondary.TButton", command=self._duplicate_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Remove Item", style="Secondary.TButton", command=self._remove_routine_item).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Run This Routine", style="Primary.TButton", command=self._trigger_selected_routine).pack(side="right", padx=5)
 
         self._refresh_routine_selector()
         self._refresh_routine_list()
+
+    def _create_advanced_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Advanced")
+        tab.grid_rowconfigure(0, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
+
+        scroller = ScrollableFrame(tab)
+        scroller.grid(row=0, column=0, sticky="nsew")
+        content = scroller.content
+
+        diag = ttk.LabelFrame(content, text="Diagnostics & Troubleshooting")
+        diag.pack(fill="x", padx=10, pady=8)
+        ttk.Label(
+            diag,
+            text="If clap detection fails, check microphone status in General and review logs.",
+            style="Hint.TLabel",
+        ).pack(anchor="w", padx=8, pady=(8, 4))
+        row = ttk.Frame(diag)
+        row.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Button(row, text="Open Logs Folder", style="Secondary.TButton", command=self._open_logs).pack(side="left")
+        ttk.Button(row, text="Run Active Routine", style="Secondary.TButton", command=self._test_active_routine).pack(
+            side="left", padx=8
+        )
+
+        tray = ttk.LabelFrame(content, text="Tray Behavior")
+        tray.pack(fill="x", padx=10, pady=8)
+        ttk.Label(
+            tray,
+            text=(
+                "Jarvis runs in the system tray.\n"
+                "- Use tray menu to pause listening.\n"
+                "- Switch active routine quickly.\n"
+                "- Trigger routine manually."
+            ),
+            justify="left",
+        ).pack(anchor="w", padx=8, pady=8)
+
+        power = ttk.LabelFrame(content, text="Power User Notes")
+        power.pack(fill="x", padx=10, pady=8)
+        ttk.Label(
+            power,
+            text=(
+                "Use full executable paths for best reliability.\n"
+                "Use per-item delay and wait timeout for slow apps.\n"
+                "Keep item names close to window titles for smoother positioning."
+            ),
+            justify="left",
+            style="Hint.TLabel",
+        ).pack(anchor="w", padx=8, pady=8)
 
     def _bind_dirty_tracking(self):
         tracked = [
@@ -375,6 +493,20 @@ class SettingsUI:
         if self.status_line:
             self.status_line.config(text=status_text, foreground="#3c763d")
 
+    def _set_status(self, text, level="info"):
+        if not self.status_line:
+            return
+        color = {"info": "#5E6A71", "success": "#3c763d", "warn": "#8a6d3b", "error": "#a94442"}.get(level, "#5E6A71")
+        self.status_line.config(text=text, foreground=color)
+
+    def _sync_slider_labels(self):
+        if hasattr(self, "threshold_display_var"):
+            self.threshold_display_var.set(f"{float(self.threshold_var.get()):.3f}")
+        if hasattr(self, "min_interval_display_var"):
+            self.min_interval_display_var.set(f"{float(self.min_interval_var.get()):.2f} s")
+        if hasattr(self, "startup_delay_display_var"):
+            self.startup_delay_display_var.set(f"{float(self.startup_delay_var.get()):.1f} s")
+
     def _refresh_routine_selector(self):
         routines = sorted(self.config_manager.routines.keys())
         self.routine_selector["values"] = routines
@@ -397,23 +529,32 @@ class SettingsUI:
         for item in self.routine_tree.get_children():
             self.routine_tree.delete(item)
 
-        for idx, item in enumerate(self.routine_store.get_items()):
+        items = self.routine_store.get_items()
+        for idx, item in enumerate(items):
+            item_type = str(item.get("type", "app")).lower()
+            icon = {"app": "□", "url": "◌", "shortcut": "◇"}.get(item_type, "•")
+            kind = f"{icon} {item_type.title()}"
             tag = f"{item.get('name')}||{idx}"
             row_id = self.routine_tree.insert(
                 "",
                 "end",
                 values=(
                     "☰",
-                    item.get("type"),
+                    kind,
                     item.get("target"),
                     item.get("monitor"),
                     item.get("position"),
-                    item.get("delay", 0),
+                    f"{float(item.get('delay', 0)):.1f}",
                 ),
                 tags=(tag,),
             )
             if idx in selected_indices:
                 self.routine_tree.selection_add(row_id)
+        if self.empty_state_label:
+            if items:
+                self.empty_state_label.pack_forget()
+            else:
+                self.empty_state_label.pack(anchor="w", padx=12, pady=(0, 8))
 
     def _create_routine(self):
         name = simpledialog.askstring("New Routine", "Enter routine name:", parent=self.root)
@@ -498,27 +639,38 @@ class SettingsUI:
     def _add_routine_item(self, edit_index=None):
         dialog = tk.Toplevel(self.root)
         is_edit = edit_index is not None
-        dialog.title("Edit Item" if is_edit else "Add Item")
-        dialog.geometry("480x450")
-        dialog.minsize(440, 420)
+        dialog.title("Edit Routine Item" if is_edit else "Add Routine Item")
+        dialog.geometry("560x520")
+        dialog.minsize(520, 500)
 
         items = self.routine_store.get_items()
         old_item = items[edit_index] if is_edit else {}
 
-        ttk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        name_var = tk.StringVar(value=old_item.get("name", ""))
-        ttk.Entry(dialog, textvariable=name_var).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Label(
+            dialog,
+            text="Choose what to launch and where to place it.",
+            style="Hint.TLabel",
+        ).grid(row=0, column=0, columnspan=2, padx=8, pady=(8, 4), sticky="w")
 
-        ttk.Label(dialog, text="Type:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Name:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        name_var = tk.StringVar(value=old_item.get("name", ""))
+        name_entry = ttk.Entry(dialog, textvariable=name_var)
+        name_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        add_tooltip(name_entry, "Friendly display name. Also used to match an existing window.")
+
+        ttk.Label(dialog, text="Type:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
         type_var = tk.StringVar(value=old_item.get("type", "app"))
         type_combo = ttk.Combobox(dialog, textvariable=type_var, values=["app", "url", "shortcut"], state="readonly")
-        type_combo.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        type_combo.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        add_tooltip(type_combo, "App = executable/command, URL = browser link, Shortcut = .lnk file.")
 
-        ttk.Label(dialog, text="Target:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Target:").grid(row=3, column=0, padx=5, pady=5, sticky="e")
         target_frame = ttk.Frame(dialog)
-        target_frame.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        target_frame.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
         target_var = tk.StringVar(value=old_item.get("target", ""))
-        ttk.Entry(target_frame, textvariable=target_var).pack(side="left", expand=True, fill="x")
+        target_entry = ttk.Entry(target_frame, textvariable=target_var)
+        target_entry.pack(side="left", expand=True, fill="x")
+        add_tooltip(target_entry, "For apps, use full path for reliability. For URLs, include https://")
         browse_btn = ttk.Button(target_frame, text="...", width=3, command=lambda: self._browse_target(name_var, target_var))
         browse_btn.pack(side="right", padx=2)
 
@@ -527,7 +679,7 @@ class SettingsUI:
             text="Use full file path for best reliability. URLs should start with https://",
             foreground="#666",
             font=("", 8),
-        ).grid(row=3, column=1, padx=5, sticky="w")
+        ).grid(row=4, column=1, padx=5, sticky="w")
 
         def on_type_change(_event=None):
             if type_var.get() == "url":
@@ -538,36 +690,40 @@ class SettingsUI:
         type_combo.bind("<<ComboboxSelected>>", on_type_change)
         on_type_change()
 
-        ttk.Label(dialog, text="Monitor:").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Monitor:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
         from src.launcher import Launcher
 
         monitor_options = Launcher.get_monitor_options()
         monitor_var = tk.StringVar(value=pick_default_monitor_option(monitor_options, old_item.get("monitor")))
-        ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_options, state="readonly").grid(
-            row=4, column=1, padx=5, pady=5, sticky="ew"
-        )
+        monitor_combo = ttk.Combobox(dialog, textvariable=monitor_var, values=monitor_options, state="readonly")
+        monitor_combo.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
+        add_tooltip(monitor_combo, "Choose where the window should appear.")
 
-        ttk.Label(dialog, text="Position:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Position:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
         pos_var = tk.StringVar(value=old_item.get("position", "full"))
         ttk.Combobox(dialog, textvariable=pos_var, values=["full", "left", "right", "top", "bottom"], state="readonly").grid(
-            row=5, column=1, padx=5, pady=5, sticky="ew"
+            row=6, column=1, padx=5, pady=5, sticky="ew"
         )
 
-        ttk.Label(dialog, text="Delay before launch (s):").grid(row=6, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Delay before launch (s):").grid(row=7, column=0, padx=5, pady=5, sticky="e")
         delay_var = tk.DoubleVar(value=float(old_item.get("delay", 0.0)))
-        ttk.Entry(dialog, textvariable=delay_var).grid(row=6, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Entry(dialog, textvariable=delay_var).grid(row=7, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="Window wait timeout (s):").grid(row=7, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Window wait timeout (s):").grid(row=8, column=0, padx=5, pady=5, sticky="e")
         wait_var = tk.DoubleVar(value=float(old_item.get("window_wait_timeout", 15.0)))
-        ttk.Entry(dialog, textvariable=wait_var).grid(row=7, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Entry(dialog, textvariable=wait_var).grid(row=8, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="CLI Arguments (optional):").grid(row=8, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Window poll interval (s):").grid(row=9, column=0, padx=5, pady=5, sticky="e")
+        poll_var = tk.DoubleVar(value=float(old_item.get("window_poll_interval", 1.0)))
+        ttk.Entry(dialog, textvariable=poll_var).grid(row=9, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(dialog, text="CLI Arguments (optional):").grid(row=10, column=0, padx=5, pady=5, sticky="e")
         args_var = tk.StringVar(value=old_item.get("args", ""))
-        ttk.Entry(dialog, textvariable=args_var).grid(row=8, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Entry(dialog, textvariable=args_var).grid(row=10, column=1, padx=5, pady=5, sticky="ew")
 
-        ttk.Label(dialog, text="Icon Path (optional):").grid(row=9, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(dialog, text="Icon Path (optional):").grid(row=11, column=0, padx=5, pady=5, sticky="e")
         icon_frame = ttk.Frame(dialog)
-        icon_frame.grid(row=9, column=1, padx=5, pady=5, sticky="ew")
+        icon_frame.grid(row=11, column=1, padx=5, pady=5, sticky="ew")
         icon_var = tk.StringVar(value=old_item.get("icon", ""))
         ttk.Entry(icon_frame, textvariable=icon_var).pack(side="left", expand=True, fill="x")
         ttk.Button(icon_frame, text="...", width=3, command=lambda: self._browse_icon(icon_var)).pack(side="right", padx=2)
@@ -595,6 +751,7 @@ class SettingsUI:
                 delay=delay_var.get(),
                 icon=icon_var.get(),
                 window_wait_timeout=wait_var.get(),
+                window_poll_interval=poll_var.get(),
             )
             self.routine_store.upsert_item(new_item, edit_index if is_edit else None)
             self._refresh_routine_list()
@@ -607,7 +764,7 @@ class SettingsUI:
             )
             dialog.destroy()
 
-        ttk.Button(dialog, text="Save" if is_edit else "Add", command=save_item).grid(row=10, columnspan=2, pady=10)
+        ttk.Button(dialog, text="Save Item" if is_edit else "Add Item", style="Primary.TButton", command=save_item).grid(row=12, columnspan=2, pady=12)
 
     def _remove_routine_item(self):
         selected = self.routine_tree.selection()
@@ -665,6 +822,8 @@ class SettingsUI:
             self.root.after(50, self._update_meter)
 
     def _update_runtime_header(self):
+        if not self.root or not self.root.winfo_exists():
+            return
         snapshot = self._get_runtime_snapshot()
         text = f"Active routine: {snapshot.active_routine} | Listening: {'On' if snapshot.listening_enabled else 'Paused'}"
         self.quick_state_label.config(text=text)
@@ -770,10 +929,10 @@ class SettingsUI:
             )
             self._mark_clean("Saved and applied")
             if close_window:
-                messagebox.showinfo("Success", "Settings saved and applied.")
+                self._set_status("Settings saved.", level="success")
                 self._close_window()
             else:
-                messagebox.showinfo("Success", "Settings applied.")
+                self._set_status("Changes applied.", level="success")
         except Exception as e:
             self.config_manager.data = candidate
             logger.error("Failed to save settings: %s", e, exc_info=True)
@@ -800,6 +959,7 @@ class SettingsUI:
             self.startup_var.set(bool(state.startup_enabled))
 
         self._update_audio_visibility()
+        self._sync_slider_labels()
         self._refresh_routine_selector()
         self._refresh_routine_list()
         self._mark_clean("Reset to current config")
@@ -849,13 +1009,14 @@ class SettingsUI:
             else:
                 temp_engine.play_file(self.audio_file_var.get())
             logger.info("UI_EVENT: audio_test_triggered mode=%s", self.audio_mode_var.get())
+            self._set_status("Played feedback preview.", level="success")
         finally:
             self.config_manager.audio_settings.update(old_settings)
 
     def _test_active_routine(self):
         if self.trigger_routine_callback:
             self.trigger_routine_callback(source="settings_test")
-            self._mark_clean("Active routine triggered")
+            self._set_status("Triggered active routine.", level="success")
         else:
             messagebox.showinfo("Info", "Routine trigger is not available right now.")
 
@@ -867,6 +1028,7 @@ class SettingsUI:
             self.switch_routine_callback(routine, source="settings_manual_select")
         if self.trigger_routine_callback:
             self.trigger_routine_callback(source="settings_selected_routine")
+            self._set_status(f"Triggered routine '{routine}'.", level="success")
 
     def _open_guided_calibration(self):
         if not self.detector or not getattr(self.detector, "stream", None):

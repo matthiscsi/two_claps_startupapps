@@ -149,6 +149,8 @@ def describe_detector_state(*, detector_available: bool, detector_active: bool, 
         return "Cooldown", "#f39c12"
     if normalized_state == "REJECTED":
         return "Ignored Noise", "#7f8c8d"
+    if peak > max(0.15, threshold * 1.8):
+        return "Too Loud", "#c0392b"
     if peak < max(0.01, threshold * 0.25):
         return "Noise Too Low", "#6c7a89"
     return "Listening", "#2e7d32"

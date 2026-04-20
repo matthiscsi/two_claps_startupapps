@@ -23,6 +23,11 @@
 - Added routine selection, cloning, deletion, item duplication, and manual routine trigger from settings.
 - Added tray controls to pause/resume listening and switch active routine quickly.
 - Added active routine persistence in config (`system.active_routine`) with validation.
+- Modernized settings visual hierarchy with cleaner spacing, stronger section labels, and consistent button styles.
+- Replaced clap numeric fields with guided sliders and live value displays.
+- Added lightweight tooltips and an `Advanced` tab for troubleshooting guidance.
+- Improved routine editor readability with clearer column labels, type markers, delay formatting, and empty-state messaging.
+- Reduced intrusive popups by preferring inline status feedback for common actions.
 
 ### Added
 - New clap-state unit tests: double clap, cooldown ignore, timeout reset.
@@ -32,3 +37,4 @@
 - New tests for routine-state store behavior (`test_ui_routines.py`).
 - New guided calibration logic with recommendations (`src/calibration.py`) and tests.
 - New UI status logic tests and active routine validation tests.
+- New UI theme helper module (`src/ui_theme.py`) for reusable styling/tooltip behavior.

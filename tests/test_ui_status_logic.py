@@ -36,3 +36,15 @@ def test_describe_detector_state_listening():
         threshold=0.15,
     )
     assert label in {"Listening", "Noise Too Low"}
+
+
+def test_describe_detector_state_too_loud():
+    label, _ = describe_detector_state(
+        detector_available=True,
+        detector_active=True,
+        state="IDLE",
+        clap_count=0,
+        peak=0.45,
+        threshold=0.15,
+    )
+    assert label == "Too Loud"
