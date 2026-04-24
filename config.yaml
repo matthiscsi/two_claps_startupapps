@@ -16,24 +16,28 @@ logging:
   file: launcher.log
   level: INFO
 system:
+  active_routine: morning_routine
   run_on_startup: null
   startup_delay: 0.0
 routines:
   morning_routine:
     items:
-    - delay: 0
+    - enabled: true
+      delay: 0
       monitor: primary
       name: HLN News
       position: full
       target: https://www.hln.be/
       type: url
-    - delay: 2
+    - enabled: true
+      delay: 2
       monitor: 1
       name: Discord
       position: full
       target: discord
       type: app
-    - delay: 1
+    - enabled: true
+      delay: 1
       monitor: 1
       name: Spotify
       position: full

@@ -7,9 +7,9 @@ Jarvis is a Windows-first background utility that listens for a double clap and 
 - Detects clap-like transients and triggers on two valid claps.
 - Runs configurable routines from `config.yaml`.
 - Reuses already-running apps when possible instead of relaunching.
-- Supports monitor targeting (`primary`, `secondary`, or index) and window positions (`full`, `left`, `right`, `top`, `bottom`).
+- Supports monitor targeting (`primary`, `secondary`, or index) and taskbar-safe window positions (`full`, `left`, `right`, `top`, `bottom`).
 - Runs from system tray with manual trigger, settings, and graceful quit.
-- Provides guided clap calibration and live runtime status in settings.
+- Provides a native Control Center with guided clap calibration, live runtime status, routine editing, and troubleshooting.
 - Supports selecting and switching active routines quickly from tray and settings.
 
 ## Quick Start (Windows)
@@ -68,25 +68,32 @@ routines:
         monitor: "primary"
         position: "full"
       - name: "Discord"
+        enabled: true
         type: "app"
         target: "discord"
         monitor: "secondary"
         position: "left"
         delay: 2
+        args: ""
+        window_title_match: "Discord"
         window_wait_timeout: 20
+        window_poll_interval: 1.0
 ```
 
 ### Routine Item Fields
 
 - `name` (required): Display name and window matching hint.
+- `enabled`: Optional boolean. Disabled items stay visible but are skipped at launch time.
 - `type` (required): `app`, `url`, `shortcut`.
 - `target` (required): Executable path/command, URL, or `.lnk`.
 - `monitor`: Monitor index or `primary`/`secondary`.
 - `position`: `full`, `left`, `right`, `top`, `bottom`.
 - `delay`: Delay before launch.
+- `args`: Optional command-line arguments for `app` targets.
 - `window_title_match`: Optional title substring override.
 - `window_wait_timeout`: Optional seconds to wait for window before positioning timeout.
 - `window_poll_interval`: Optional polling interval when waiting for window.
+- `icon`: Optional user-facing icon path for future UI integrations.
 
 ### System Fields
 
@@ -106,6 +113,8 @@ UI modules:
 - `src/ui_models.py`: typed UI form/runtime state objects.
 - `src/ui_logic.py`: UI-side validation, monitor parsing, config-apply helpers.
 - `src/ui_routines.py`: routine item store operations (add/edit/remove/reorder).
+- `src/ui_diagnostics.py`: log path resolution, log preview tailing, troubleshooting summaries.
+- `src/ui_assets.py`: resilient icon loading for native toolbar buttons.
 - `src/ui_layout.py`: scroll-safe settings layout helpers for DPI/smaller displays.
 - `src/ui_theme.py`: visual style tokens and lightweight tooltip helper.
 
@@ -116,23 +125,34 @@ UI modules:
 - Add new validation rules: extend `src/validator.py`; UI will surface save errors through existing error flow.
 - Add new clap tuning settings: wire defaults in `src/config.py`, validate in `src/validator.py`, and apply in `ClapDetector.refresh_settings`.
 
-## Settings Experience
+## Control Center
 
-- The settings window now keeps action buttons visible and uses scrollable tab content.
-- The window is split into `General`, `Routines`, and `Advanced` tabs.
-- General tab uses slider-based clap controls with live values and helper text.
+- The settings window is now a native Control Center with anchored action buttons, scroll-safe pages, and a clearer four-tab workflow.
+- `Dashboard` shows runtime state, next launch action, startup state, live mic meter, clap sensitivity, sound feedback, and quick actions.
 - Live detector state is presented in plain language (`Listening`, `Noise Too Low`, `Too Loud`, `Clap Detected`, `Cooldown`, `Ignored Noise`, `Device Error`).
-- Guided Calibration:
+- `Calibration` provides the first-run wizard entry point and explains the ambient-noise and clap-sample phases.
+- Guided calibration:
   - Measures ambient peaks.
   - Collects clap samples.
   - Recommends threshold and cooldown.
   - Applies values with one click (then `Apply`/`Save` persists).
-- Routines tab now supports:
+- `Routines` uses a split-pane editor:
   - Selecting active routine.
   - Creating, cloning, deleting routines.
+  - Enabling/disabling individual startup items without deleting them.
   - Duplicating items.
+  - One-click Move Up / Move Down controls in addition to drag handle reordering.
+  - Name column + double-click to edit + Delete key for faster list management.
+  - Inline editing for target, monitor, placement, delay, args, window matching, timeout, poll interval, and icon path.
+  - Single-item test execution (`Test Selected Item`) before running full routine.
+  - Monitor placement preview text that explains taskbar-safe placement before saving.
+  - Mini visual placement preview that shows target window area vs taskbar-safe work region.
   - Triggering selected routine immediately.
-- Advanced tab provides troubleshooting guidance and quick access to diagnostics.
+- `Troubleshooting` provides logs, config paths, diagnostics, and recovery hints.
+  - Open Logs Folder, Open Config File, and copy a troubleshooting summary to clipboard.
+  - Built-in recent log preview (refresh/copy) for quicker issue triage.
+
+Small toolbar icons live in `assets/ui/`. They are bundled through the existing `assets` PyInstaller rule and the UI falls back to text-only buttons if an icon cannot load.
 
 ## CLI
 

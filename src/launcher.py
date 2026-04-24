@@ -90,6 +90,10 @@ class Launcher:
             return
 
         name = item.get("name", "Unknown")
+        if item.get("enabled", True) is False:
+            logger.info("SKIP: Routine item '%s' is disabled.", name)
+            return
+
         logger.info(f"START: Launching item '{name}'")
         item_type = item.get("type")
         target = item.get("target")

@@ -33,6 +33,7 @@ DEFAULT_CONFIG = {
             "items": [
                 {
                     "name": "HLN News",
+                    "enabled": True,
                     "type": "url",
                     "target": "https://www.hln.be/",
                     "monitor": "primary",
@@ -41,6 +42,7 @@ DEFAULT_CONFIG = {
                 },
                 {
                     "name": "Discord",
+                    "enabled": True,
                     "type": "app",
                     "target": "discord",
                     "monitor": 1,
@@ -49,6 +51,7 @@ DEFAULT_CONFIG = {
                 },
                 {
                     "name": "Spotify",
+                    "enabled": True,
                     "type": "app",
                     "target": "spotify",
                     "monitor": 1,

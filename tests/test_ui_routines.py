@@ -35,3 +35,24 @@ def test_reorder_by_previous_indices():
     store = RoutineStore(routines)
     store.reorder_by_previous_indices([2, 0, 1])
     assert [i["name"] for i in store.get_items()] == ["C", "A", "B"]
+
+
+def test_move_item_up_and_down():
+    routines = _make_routines()
+    store = RoutineStore(routines)
+    new_idx = store.move_item(1, -1)
+    assert new_idx == 0
+    assert [i["name"] for i in store.get_items()] == ["B", "A", "C"]
+
+    new_idx = store.move_item(0, 1)
+    assert new_idx == 1
+    assert [i["name"] for i in store.get_items()] == ["A", "B", "C"]
+
+
+def test_move_item_edges_do_not_change_order():
+    routines = _make_routines()
+    store = RoutineStore(routines)
+    assert store.move_item(0, -1) == 0
+    assert store.move_item(2, 1) == 2
+    assert store.move_item(99, 1) == 99
+    assert [i["name"] for i in store.get_items()] == ["A", "B", "C"]

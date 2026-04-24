@@ -100,6 +100,10 @@ def _validate_item(item, context):
             target,
         )
 
+    enabled = item.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigValidationError(f"Item '{name}' has invalid enabled value '{enabled}'. Must be true or false.")
+
     monitor = item.get("monitor", 0)
     if not isinstance(monitor, (int, str)):
         raise ConfigValidationError(
@@ -121,6 +125,16 @@ def _validate_item(item, context):
     delay = item.get("delay", 0)
     if not isinstance(delay, (int, float)) or delay < 0:
         raise ConfigValidationError(f"Item '{name}' has invalid delay '{delay}'. Must be a non-negative number.")
+
+    if "window_wait_timeout" in item:
+        wait_timeout = item["window_wait_timeout"]
+        if not isinstance(wait_timeout, (int, float)) or wait_timeout < 1:
+            raise ConfigValidationError(f"Item '{name}' has invalid window_wait_timeout '{wait_timeout}'. Must be at least 1 second.")
+
+    if "window_poll_interval" in item:
+        poll_interval = item["window_poll_interval"]
+        if not isinstance(poll_interval, (int, float)) or poll_interval < 0.1:
+            raise ConfigValidationError(f"Item '{name}' has invalid window_poll_interval '{poll_interval}'. Must be at least 0.1 seconds.")
 
 
 def _validate_audio_settings(settings):

@@ -4,7 +4,11 @@ from src.ui_logic import (
     UIValidationError,
     apply_form_state_to_config,
     build_routine_item,
+    describe_monitor_placement,
+    is_routine_item_enabled,
+    monitor_layout_preview_rect,
     parse_monitor_value,
+    summarize_routine_next_action,
     validate_routine_item_inputs,
 )
 from src.ui_models import SettingsFormState
@@ -57,6 +61,28 @@ def test_build_routine_item_normalizes_and_converts_monitor():
     assert item["target"] == "calc.exe"
     assert item["monitor"] == 1
     assert item["args"] == "--flag"
+    assert item["enabled"] is True
+
+
+def test_build_routine_item_preserves_advanced_fields():
+    item = build_routine_item(
+        name="App",
+        enabled=False,
+        item_type="app",
+        target="calc.exe",
+        args="",
+        monitor_value="primary",
+        position="left",
+        delay=0,
+        icon="",
+        window_title_match="Calculator",
+        window_wait_timeout=0.2,
+        window_poll_interval=0.01,
+    )
+    assert item["enabled"] is False
+    assert item["window_title_match"] == "Calculator"
+    assert item["window_wait_timeout"] == 1.0
+    assert item["window_poll_interval"] == 0.1
 
 
 def test_apply_form_state_to_config_updates_data():
@@ -78,3 +104,28 @@ def test_apply_form_state_to_config_updates_data():
     assert cfg.data["system"]["startup_delay"] == 2.0
     assert cfg.data["system"]["run_on_startup"] is True
     assert cfg.data["system"]["active_routine"] == "work_routine"
+
+
+def test_describe_monitor_placement_includes_taskbar_safe_hint():
+    summary = describe_monitor_placement("Monitor 1: 2560x1440 @ 1920,0", "left")
+    assert "Monitor 1" in summary
+    assert "taskbar-safe" in summary
+    assert "1280x1440" in summary
+
+
+def test_monitor_layout_preview_rect_shapes():
+    assert monitor_layout_preview_rect("full") == (0.0, 0.0, 1.0, 1.0)
+    assert monitor_layout_preview_rect("left") == (0.0, 0.0, 0.5, 1.0)
+    assert monitor_layout_preview_rect("bottom") == (0.0, 0.5, 1.0, 0.5)
+
+
+def test_enabled_items_and_next_action_summary():
+    items = [
+        {"name": "Muted", "enabled": False},
+        {"name": "Browser", "enabled": True},
+        {"name": "Music"},
+    ]
+    assert is_routine_item_enabled(items[0]) is False
+    assert is_routine_item_enabled(items[2]) is True
+    assert summarize_routine_next_action(items) == "Next trigger launches Browser + 1 more."
+    assert "No enabled" in summarize_routine_next_action([{"name": "Muted", "enabled": False}])

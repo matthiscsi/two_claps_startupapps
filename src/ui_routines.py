@@ -40,3 +40,15 @@ class RoutineStore:
             if 0 <= idx < len(old_items):
                 new_items.append(old_items[idx])
         self.set_items(new_items)
+
+    def move_item(self, index: int, direction: int) -> int:
+        """Move item by one slot and return the new index."""
+        items = self.get_items()
+        if not (0 <= index < len(items)):
+            return index
+        target_index = index + direction
+        if not (0 <= target_index < len(items)):
+            return index
+        items[index], items[target_index] = items[target_index], items[index]
+        self.set_items(items)
+        return target_index

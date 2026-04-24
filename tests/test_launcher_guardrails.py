@@ -43,3 +43,19 @@ def test_shortcut_missing_path_is_skipped():
     with patch("os.startfile", create=True) as startfile:
         launcher.launch_routine("test")
         startfile.assert_not_called()
+
+
+def test_disabled_item_is_skipped():
+    item = {
+        "name": "Muted App",
+        "enabled": False,
+        "type": "app",
+        "target": "calc.exe",
+        "monitor": 0,
+        "position": "full",
+    }
+    launcher = Launcher(_config_with_item(item), dry_run=False, monitors=_single_monitor())
+
+    with patch("subprocess.Popen") as popen:
+        launcher.launch_routine("test")
+        popen.assert_not_called()
