@@ -12,19 +12,21 @@ from src.config import get_resource_path
 from src.logger import get_log_dir
 from src.startup_helper import apply_startup_state, get_startup_state
 from src.ui_assets import IconRegistry
-from src.ui_diagnostics import build_troubleshooting_summary, resolve_log_file_path, tail_text_file
+from src.ui_diagnostics import build_routine_launch_plan, build_troubleshooting_summary, resolve_log_file_path, tail_text_file
 from src.ui_layout import ScrollableFrame, preferred_window_geometry
 from src.ui_theme import add_tooltip, apply_theme
 from src.ui_logic import (
     UIValidationError,
     apply_form_state_to_config,
     build_routine_item,
+    choose_routine_selection,
     cloned_config_data,
     describe_monitor_placement,
     describe_detector_state,
     detect_duplicate_item_names,
     is_routine_item_enabled,
     monitor_layout_preview_rect,
+    normalize_routine_timing,
     parse_monitor_value,
     pick_default_monitor_option,
     summarize_routine_next_action,
@@ -183,6 +185,7 @@ class SettingsUI:
             ttk.Button(button_box, text="Reset", style="Secondary.TButton", command=self._reset_form_from_config).pack(side="right", padx=5)
             ttk.Button(button_box, text="Cancel", style="Secondary.TButton", command=self._close_window).pack(side="right", padx=5)
 
+            self._bind_keyboard_shortcuts()
             self._mark_clean("Ready")
             self.root.after(500, self._update_runtime_header)
             logger.info("UI_EVENT: settings_window_mainloop_start")
@@ -407,7 +410,7 @@ class SettingsUI:
 
         helper = ttk.Label(
             content,
-            text="Drag items by the handle (☰) to reorder launch sequence.",
+            text="Drag items by the handle (::) to reorder launch sequence.",
             style="Hint.TLabel",
         )
         helper.pack(anchor="w", padx=10, pady=(2, 2))
@@ -468,7 +471,7 @@ class SettingsUI:
 
         self.empty_state_label = ttk.Label(
             content,
-            text="No items yet. Click “Add Item” to build your routine.",
+            text="No items yet. Click Add Item to build your routine.",
             style="Hint.TLabel",
         )
         self.empty_state_label.pack(anchor="w", padx=12, pady=(0, 8))
@@ -478,6 +481,7 @@ class SettingsUI:
         self._icon_button(btn_frame, icon="add", text="Add Item", command=self._add_routine_item).pack(side="left", padx=4)
         self._icon_button(btn_frame, icon="edit", text="Edit Modal", command=self._edit_routine_item).pack(side="left", padx=4)
         self._icon_button(btn_frame, icon="duplicate", text="Duplicate", command=self._duplicate_routine_item).pack(side="left", padx=4)
+        self._icon_button(btn_frame, icon="success", text="Toggle On/Off", command=self._toggle_selected_item_enabled).pack(side="left", padx=4)
         self._icon_button(btn_frame, icon="delete", text="Remove", command=self._remove_routine_item).pack(side="left", padx=4)
         self._icon_button(btn_frame, icon="up", text="Move Up", command=lambda: self._move_selected_item(-1)).pack(side="left", padx=4)
         self._icon_button(btn_frame, icon="down", text="Move Down", command=lambda: self._move_selected_item(1)).pack(side="left", padx=4)
@@ -552,6 +556,7 @@ class SettingsUI:
         self._icon_button(row, icon="logs", text="Open Logs Folder", command=self._open_logs).pack(side="left")
         self._icon_button(row, icon="config", text="Open Config File", command=self._open_config_file).pack(side="left", padx=8)
         self._icon_button(row, icon="copy", text="Copy Summary", command=self._copy_diagnostics).pack(side="left")
+        self._icon_button(row, icon="copy", text="Copy Launch Plan", command=self._copy_routine_plan).pack(side="left", padx=8)
         self._icon_button(row, icon="run", text="Run Active Routine", command=self._test_active_routine).pack(
             side="left", padx=8
         )
@@ -625,9 +630,9 @@ class SettingsUI:
         self.item_editor_widgets = []
         self.item_editor_canvas = tk.Canvas(parent, width=220, height=130, bg="#0f172a", highlightthickness=0)
 
-        ttk.Checkbutton(parent, text="Enabled in routine", variable=vars_["enabled"]).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4)
-        )
+        enabled_check = ttk.Checkbutton(parent, text="Enabled in routine", variable=vars_["enabled"])
+        enabled_check.grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 4))
+        self.item_editor_widgets.append(enabled_check)
         fields = [
             ("Name", "name", "entry"),
             ("Type", "type", "combo"),
@@ -744,10 +749,12 @@ class SettingsUI:
             warning_message = validate_routine_item_inputs(
                 name=vars_["name"].get(), item_type=vars_["type"].get(), target=vars_["target"].get()
             )
-            delay = float(vars_["delay"].get())
-            wait_timeout = float(vars_["window_wait_timeout"].get())
-            poll_interval = float(vars_["window_poll_interval"].get())
-        except (UIValidationError, ValueError) as exc:
+            delay, wait_timeout, poll_interval = normalize_routine_timing(
+                vars_["delay"].get(),
+                vars_["window_wait_timeout"].get(),
+                vars_["window_poll_interval"].get(),
+            )
+        except UIValidationError as exc:
             messagebox.showerror("Invalid item", str(exc))
             return
         if warning_message and not messagebox.askyesno("Warning", warning_message):
@@ -787,6 +794,19 @@ class SettingsUI:
         ]
         for variable in tracked:
             variable.trace_add("write", lambda *_: self._mark_dirty("Unsaved changes"))
+
+    def _bind_keyboard_shortcuts(self):
+        def bind(sequence, callback):
+            self.root.bind_all(sequence, lambda event: (callback(), "break")[1])
+
+        bind("<Control-s>", lambda: self._save_settings(close_window=False))
+        bind("<Control-Return>", lambda: self._save_settings(close_window=False))
+        bind("<Control-Shift-S>", lambda: self._save_settings(close_window=True))
+        bind("<F5>", self._trigger_selected_routine)
+        bind("<Control-n>", self._add_routine_item)
+        bind("<Control-d>", self._duplicate_routine_item)
+        bind("<Control-e>", self._toggle_selected_item_enabled)
+        bind("<Escape>", self._close_window)
 
     def _mark_dirty(self, status_text="Unsaved changes"):
         if not self._dirty:
@@ -842,9 +862,9 @@ class SettingsUI:
     def _refresh_routine_selector(self):
         routines = sorted(self.config_manager.routines.keys())
         self.routine_selector["values"] = routines
-        desired = self.config_manager.system_settings.get("active_routine", "morning_routine")
-        if desired not in routines and routines:
-            desired = routines[0]
+        current = self.selected_routine_var.get() if hasattr(self, "selected_routine_var") else ""
+        configured = self.config_manager.system_settings.get("active_routine", "morning_routine")
+        desired = choose_routine_selection(routines, current_selection=current, configured_selection=configured)
         if desired:
             self.selected_routine_var.set(desired)
             self.routine_store.routine_name = desired
@@ -971,6 +991,23 @@ class SettingsUI:
             self._refresh_routine_list()
             self._mark_dirty("Routine item duplicated (unsaved)")
 
+    def _toggle_selected_item_enabled(self):
+        idx = self._selected_item_index()
+        if idx is None:
+            messagebox.showinfo("Toggle item", "Select exactly one item to enable or disable.")
+            return
+        enabled = self.routine_store.toggle_item_enabled(idx)
+        if enabled is None:
+            return
+        self._refresh_routine_list()
+        rows = self.routine_tree.get_children()
+        if idx < len(rows):
+            self.routine_tree.selection_set(rows[idx])
+            self.routine_tree.focus(rows[idx])
+        state = "enabled" if enabled else "disabled"
+        self._mark_dirty(f"Routine item {state} (unsaved)")
+        self._set_status(f"Selected item {state}.", level="success")
+
     def _add_routine_item(self, edit_index=None):
         dialog = tk.Toplevel(self.root)
         is_edit = edit_index is not None
@@ -1085,6 +1122,11 @@ class SettingsUI:
                 warning_message = validate_routine_item_inputs(
                     name=name_var.get(), item_type=type_var.get(), target=target_var.get()
                 )
+                delay, wait_timeout, poll_interval = normalize_routine_timing(
+                    delay_var.get(),
+                    wait_var.get(),
+                    poll_var.get(),
+                )
             except UIValidationError as e:
                 messagebox.showerror("Error", str(e))
                 return
@@ -1099,11 +1141,11 @@ class SettingsUI:
                 args=args_var.get(),
                 monitor_value=monitor_var.get(),
                 position=pos_var.get(),
-                delay=delay_var.get(),
+                delay=delay,
                 icon=icon_var.get(),
                 window_title_match=old_item.get("window_title_match", ""),
-                window_wait_timeout=wait_var.get(),
-                window_poll_interval=poll_var.get(),
+                window_wait_timeout=wait_timeout,
+                window_poll_interval=poll_interval,
             )
             self.routine_store.upsert_item(new_item, edit_index if is_edit else None)
             self._refresh_routine_list()
@@ -1268,16 +1310,6 @@ class SettingsUI:
     def _save_settings(self, close_window):
         candidate = cloned_config_data(self.config_manager.data)
         try:
-            startup_apply_result = None
-            if sys.platform == "win32":
-                requested = self.startup_var.get()
-                logger.info("UI_EVENT: startup_toggle_requested enabled=%s", requested)
-                startup_apply_result = apply_startup_state(requested)
-                success, actual = startup_apply_result
-                self.startup_var.set(actual["enabled"])
-                if not success:
-                    raise RuntimeError(f"Failed to set startup to {requested}. Actual state is {actual['enabled']}.")
-
             for routine_name, routine_data in self.config_manager.routines.items():
                 duplicates = detect_duplicate_item_names(routine_data.get("items", []))
                 if duplicates:
@@ -1298,8 +1330,21 @@ class SettingsUI:
                 active_routine=selected_routine,
             )
 
-            apply_form_state_to_config(self.config_manager, form_state, startup_apply_result=startup_apply_result)
+            apply_form_state_to_config(self.config_manager, form_state)
+            if sys.platform == "win32":
+                self.config_manager.data["system"]["run_on_startup"] = bool(form_state.startup_enabled)
             validate_full_config_data(self.config_manager.data)
+
+            if sys.platform == "win32":
+                requested = self.startup_var.get()
+                logger.info("UI_EVENT: startup_toggle_requested enabled=%s", requested)
+                success, actual = apply_startup_state(requested)
+                self.startup_var.set(actual["enabled"])
+                self.config_manager.data["system"]["run_on_startup"] = actual["enabled"]
+                if not success:
+                    raise RuntimeError(f"Failed to set startup to {requested}. Actual state is {actual['enabled']}.")
+                validate_full_config_data(self.config_manager.data)
+
             self.config_manager.save()
 
             if self.switch_routine_callback:
@@ -1650,6 +1695,14 @@ class SettingsUI:
         self.root.clipboard_append(summary)
         self._set_status("Troubleshooting summary copied to clipboard.", level="success")
 
+    def _copy_routine_plan(self):
+        routine_name = self.selected_routine_var.get() or self._get_runtime_snapshot().active_routine
+        items = self.config_manager.routines.get(routine_name, {}).get("items", [])
+        plan = build_routine_launch_plan(routine_name, items)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(plan)
+        self._set_status("Routine launch plan copied to clipboard.", level="success")
+
     def _get_runtime_status(self):
         if not self.detector:
             return RuntimeStatus(False, False, "NO DETECTOR", 0, 0.0)
@@ -1729,6 +1782,15 @@ class SettingsUI:
             return self.routine_tree.index(item_id)
 
     def _close_window(self):
+        if self._dirty:
+            should_close = messagebox.askyesno(
+                "Discard unsaved changes?",
+                "You have unsaved changes. Close the Control Center without applying them?",
+                parent=self.root,
+            )
+            if not should_close:
+                self._set_status("Close canceled. Apply or Save to keep changes.", level="warn")
+                return
         self._monitoring = False
         SettingsUI._instance = None
         if self.root:

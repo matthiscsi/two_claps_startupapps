@@ -150,9 +150,19 @@ UI modules:
   - Triggering selected routine immediately.
 - `Troubleshooting` provides logs, config paths, diagnostics, and recovery hints.
   - Open Logs Folder, Open Config File, and copy a troubleshooting summary to clipboard.
+  - Copy a launch plan for the selected routine, including disabled items and placement targets.
   - Built-in recent log preview (refresh/copy) for quicker issue triage.
 
 Small toolbar icons live in `assets/ui/`. They are bundled through the existing `assets` PyInstaller rule and the UI falls back to text-only buttons if an icon cannot load.
+
+Keyboard shortcuts:
+- `Ctrl+S` or `Ctrl+Enter`: apply changes.
+- `Ctrl+Shift+S`: save and close.
+- `F5`: run the selected routine.
+- `Ctrl+N`: add a routine item.
+- `Ctrl+D`: duplicate the selected routine item.
+- `Ctrl+E`: toggle the selected routine item on/off.
+- `Esc`: close, with a discard confirmation when changes are unsaved.
 
 ## CLI
 

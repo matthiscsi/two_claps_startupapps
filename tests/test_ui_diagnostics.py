@@ -1,4 +1,4 @@
-from src.ui_diagnostics import build_troubleshooting_summary, resolve_log_file_path, tail_text_file
+from src.ui_diagnostics import build_routine_launch_plan, build_troubleshooting_summary, resolve_log_file_path, tail_text_file
 from src.ui_models import AppRuntimeSnapshot, RuntimeStatus
 
 
@@ -29,3 +29,18 @@ def test_build_troubleshooting_summary_includes_runtime_and_paths():
     assert "Active routine: morning" in summary
     assert "Startup enabled: True" in summary
     assert "Threshold: 0.200" in summary
+
+
+def test_build_routine_launch_plan_lists_enabled_and_disabled_items():
+    plan = build_routine_launch_plan(
+        "morning",
+        [
+            {"name": "News", "enabled": True, "type": "url", "target": "https://example.com", "monitor": "primary"},
+            {"name": "Music", "enabled": False, "type": "app", "target": "spotify", "position": "left", "delay": 1},
+            {"name": "Odd", "type": "app", "target": "weird", "delay": "soon"},
+        ],
+    )
+    assert "3 total, 2 enabled" in plan
+    assert "News (enabled)" in plan
+    assert "Music (disabled)" in plan
+    assert "delay=soon" in plan

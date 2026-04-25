@@ -56,3 +56,13 @@ def test_move_item_edges_do_not_change_order():
     assert store.move_item(2, 1) == 2
     assert store.move_item(99, 1) == 99
     assert [i["name"] for i in store.get_items()] == ["A", "B", "C"]
+
+
+def test_toggle_item_enabled():
+    routines = _make_routines()
+    store = RoutineStore(routines)
+    assert store.toggle_item_enabled(1) is False
+    assert store.get_items()[1]["enabled"] is False
+    assert store.toggle_item_enabled(1) is True
+    assert store.get_items()[1]["enabled"] is True
+    assert store.toggle_item_enabled(99) is None

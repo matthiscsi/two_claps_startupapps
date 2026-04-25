@@ -52,3 +52,21 @@ class RoutineStore:
         items[index], items[target_index] = items[target_index], items[index]
         self.set_items(items)
         return target_index
+
+    def set_item_enabled(self, index: int, enabled: bool) -> bool:
+        items = self.get_items()
+        if not (0 <= index < len(items)):
+            return False
+        items[index] = copy.deepcopy(items[index])
+        items[index]["enabled"] = bool(enabled)
+        self.set_items(items)
+        return True
+
+    def toggle_item_enabled(self, index: int) -> bool | None:
+        items = self.get_items()
+        if not (0 <= index < len(items)):
+            return None
+        current = bool(items[index].get("enabled", True))
+        enabled = not current
+        self.set_item_enabled(index, enabled)
+        return enabled

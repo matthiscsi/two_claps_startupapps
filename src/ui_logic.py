@@ -48,6 +48,15 @@ def pick_default_monitor_option(monitor_options, current_monitor):
     return selected_option
 
 
+def choose_routine_selection(routine_names, current_selection: str = "", configured_selection: str = "") -> str:
+    routines = sorted(str(name) for name in routine_names)
+    if current_selection in routines:
+        return current_selection
+    if configured_selection in routines:
+        return configured_selection
+    return routines[0] if routines else ""
+
+
 def describe_monitor_placement(monitor_option: str, position: str) -> str:
     """Build a user-facing monitor placement summary."""
     monitor_text = str(monitor_option or "").strip()
@@ -113,6 +122,23 @@ def validate_routine_item_inputs(
             return f"Path '{clean_target}' does not seem to exist. Save anyway?"
 
     return None
+
+
+def normalize_routine_timing(delay, window_wait_timeout, window_poll_interval) -> tuple[float, float, float]:
+    try:
+        delay_value = float(delay)
+        wait_value = float(window_wait_timeout)
+        poll_value = float(window_poll_interval)
+    except (TypeError, ValueError) as exc:
+        raise UIValidationError("Timing fields must be numbers.") from exc
+
+    if delay_value < 0:
+        raise UIValidationError("Delay must be zero or greater.")
+    if wait_value < 1.0:
+        raise UIValidationError("Window wait timeout must be at least 1 second.")
+    if poll_value < 0.1:
+        raise UIValidationError("Window poll interval must be at least 0.1 seconds.")
+    return delay_value, wait_value, poll_value
 
 
 def build_routine_item(
