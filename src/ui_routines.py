@@ -40,3 +40,33 @@ class RoutineStore:
             if 0 <= idx < len(old_items):
                 new_items.append(old_items[idx])
         self.set_items(new_items)
+
+    def move_item(self, index: int, direction: int) -> int:
+        """Move item by one slot and return the new index."""
+        items = self.get_items()
+        if not (0 <= index < len(items)):
+            return index
+        target_index = index + direction
+        if not (0 <= target_index < len(items)):
+            return index
+        items[index], items[target_index] = items[target_index], items[index]
+        self.set_items(items)
+        return target_index
+
+    def set_item_enabled(self, index: int, enabled: bool) -> bool:
+        items = self.get_items()
+        if not (0 <= index < len(items)):
+            return False
+        items[index] = copy.deepcopy(items[index])
+        items[index]["enabled"] = bool(enabled)
+        self.set_items(items)
+        return True
+
+    def toggle_item_enabled(self, index: int) -> bool | None:
+        items = self.get_items()
+        if not (0 <= index < len(items)):
+            return None
+        current = bool(items[index].get("enabled", True))
+        enabled = not current
+        self.set_item_enabled(index, enabled)
+        return enabled

@@ -75,3 +75,37 @@ def test_validate_invalid_monitor():
     }
     with pytest.raises(ConfigValidationError, match="invalid monitor alias"):
         validate_config(invalid_data)
+
+
+def test_validate_disabled_item_and_wait_settings():
+    valid_data = {
+        "routines": {
+            "test": {
+                "items": [
+                    {
+                        "name": "App",
+                        "enabled": False,
+                        "type": "app",
+                        "target": "calc.exe",
+                        "window_wait_timeout": 2,
+                        "window_poll_interval": 0.2,
+                    }
+                ]
+            }
+        }
+    }
+    validate_config(valid_data)
+
+
+def test_validate_invalid_enabled_value():
+    invalid_data = {
+        "routines": {
+            "test": {
+                "items": [
+                    {"name": "App", "enabled": "yes", "type": "app", "target": "calc.exe"}
+                ]
+            }
+        }
+    }
+    with pytest.raises(ConfigValidationError, match="invalid enabled"):
+        validate_config(invalid_data)

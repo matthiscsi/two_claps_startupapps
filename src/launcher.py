@@ -66,11 +66,18 @@ class Launcher:
 
         logger.info(f"--- Starting Routine: {routine_name} ---")
         items = routines[routine_name].get("items", [])
+        enabled_items = [item for item in items if isinstance(item, dict) and item.get("enabled", True)]
 
         # Log the exact sequence
-        sequence = " -> ".join([item.get('name', 'Unknown') for item in items])
+        sequence = " -> ".join(
+            [
+                item.get("name", "Unknown") if item.get("enabled", True) else f"{item.get('name', 'Unknown')} (disabled)"
+                for item in items
+                if isinstance(item, dict)
+            ]
+        )
         logger.info(f"Launch sequence: {sequence}")
-        logger.info(f"Found {len(items)} items to launch.")
+        logger.info(f"Found {len(items)} items in routine, {len(enabled_items)} enabled.")
 
         for i, item in enumerate(items):
             try:
@@ -90,6 +97,10 @@ class Launcher:
             return
 
         name = item.get("name", "Unknown")
+        if item.get("enabled", True) is False:
+            logger.info("SKIP: Routine item '%s' is disabled.", name)
+            return
+
         logger.info(f"START: Launching item '{name}'")
         item_type = item.get("type")
         target = item.get("target")

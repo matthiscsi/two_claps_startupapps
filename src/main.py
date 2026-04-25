@@ -181,6 +181,25 @@ class JarvisApp:
         self.on_trigger_routine(source="double_clap")
         return False
 
+    def on_trigger_item(self, item, source="unknown"):
+        if not isinstance(item, dict):
+            self.logger.warning("EVENT: routine_item_test_ignored reason=invalid_item source=%s", source)
+            return
+
+        def run():
+            if not self.routine_lock.acquire(blocking=False):
+                self.logger.warning("EVENT: routine_item_test_ignored source=%s reason=already_running", source)
+                return
+            try:
+                item_name = item.get("name", "Unnamed")
+                self.logger.info("EVENT: routine_item_test source=%s item=%s", source, item_name)
+                if self.launcher:
+                    self.launcher.launch_item(item)
+            finally:
+                self.routine_lock.release()
+
+        threading.Thread(target=run, daemon=True).start()
+
     def set_active_routine(self, routine_name, source="unknown"):
         if routine_name not in self.config.routines:
             self.logger.warning("EVENT: routine_switch_failed source=%s routine=%s reason=not_found", source, routine_name)
@@ -325,6 +344,7 @@ class JarvisApp:
             runtime_snapshot_provider=self.runtime_snapshot,
             trigger_routine_callback=self.on_trigger_routine,
             switch_routine_callback=self.set_active_routine,
+            trigger_item_callback=self.on_trigger_item,
         )
         # We run it in a thread to keep the tray responsive.
         # Non-daemon so it doesn't get killed instantly, but on Windows

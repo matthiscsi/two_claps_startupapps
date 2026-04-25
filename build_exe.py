@@ -15,7 +15,9 @@ def build():
         '--onefile',
         '--clean',
         '--noconfirm',
-        f'--add-data=config.yaml{sep}.', f'--add-data=assets{sep}assets',
+        f'--add-data=config.yaml{sep}.',
+        # Bundles the tray icon plus Control Center toolbar icons under assets/ui.
+        f'--add-data=assets{sep}assets',
         '--paths=.',
         # Include hidden imports if necessary
         '--hidden-import=pkg_resources.py2_warn', # Sometimes needed for gTTS/others
