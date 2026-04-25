@@ -178,6 +178,10 @@ def _validate_system_settings(settings, routines):
             raise ConfigValidationError(
                 f"system.active_routine '{routine_name}' does not exist in routines."
             )
+    if "first_run_completed" in settings and not isinstance(settings["first_run_completed"], bool):
+        raise ConfigValidationError("system.first_run_completed must be a boolean.")
+    if "last_control_center_version" in settings and not isinstance(settings["last_control_center_version"], str):
+        raise ConfigValidationError("system.last_control_center_version must be a string.")
 
 
 def _require_number(settings, key, min_value, max_value, context, integer=False):

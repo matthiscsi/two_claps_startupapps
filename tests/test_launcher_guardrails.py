@@ -26,8 +26,10 @@ def test_app_with_missing_absolute_path_is_skipped():
     launcher = Launcher(_config_with_item(item), dry_run=False, monitors=_single_monitor())
 
     with patch("subprocess.Popen") as popen:
-        launcher.launch_routine("test")
+        results = launcher.launch_routine("test")
         popen.assert_not_called()
+    assert results[0]["status"] == "failure"
+    assert "invalid" in results[0]["message"].lower()
 
 
 def test_shortcut_missing_path_is_skipped():
@@ -41,8 +43,9 @@ def test_shortcut_missing_path_is_skipped():
     launcher = Launcher(_config_with_item(item), dry_run=False, monitors=_single_monitor())
 
     with patch("os.startfile", create=True) as startfile:
-        launcher.launch_routine("test")
+        results = launcher.launch_routine("test")
         startfile.assert_not_called()
+    assert results[0]["status"] == "failure"
 
 
 def test_disabled_item_is_skipped():
@@ -57,5 +60,7 @@ def test_disabled_item_is_skipped():
     launcher = Launcher(_config_with_item(item), dry_run=False, monitors=_single_monitor())
 
     with patch("subprocess.Popen") as popen:
-        launcher.launch_routine("test")
+        results = launcher.launch_routine("test")
         popen.assert_not_called()
+    assert results[0]["status"] == "skipped"
+    assert "disabled" in results[0]["message"].lower()

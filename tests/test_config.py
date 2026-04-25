@@ -6,6 +6,8 @@ def test_config_default_values():
     config = Config("test_config.yaml")
     assert config.get("clap_settings")["threshold"] == 0.15
     assert "morning_routine" in config.routines
+    assert config.system_settings["first_run_completed"] is False
+    assert config.system_settings["last_control_center_version"] == "2"
     if os.path.exists("test_config.yaml"):
         os.remove("test_config.yaml")
 

@@ -72,6 +72,8 @@ DEFAULT_CONFIG = {
         "run_on_startup": None,
         "startup_delay": 0.0,
         "active_routine": "morning_routine",
+        "first_run_completed": False,
+        "last_control_center_version": "2",
     },
     "logging": {
         "level": "INFO",
@@ -160,8 +162,17 @@ class Config:
                 system["active_routine"] = first_routine_name
             else:
                 system["active_routine"] = "morning_routine"
+        system.setdefault("first_run_completed", False)
+        system.setdefault("last_control_center_version", "2")
 
-    def save(self):
+    def save(self, create_backup=False, backup_reason="save"):
+        if create_backup:
+            try:
+                from src.config_backup import create_config_backup
+
+                create_config_backup(self.config_path, reason=backup_reason)
+            except Exception:
+                logger.warning("Could not create config backup before save.", exc_info=True)
         with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(self.data, f, default_flow_style=False)
 
@@ -182,7 +193,16 @@ class Config:
 
     @property
     def system_settings(self):
-        return self.data.get("system", {"run_on_startup": None, "startup_delay": 0.0, "active_routine": "morning_routine"})
+        return self.data.get(
+            "system",
+            {
+                "run_on_startup": None,
+                "startup_delay": 0.0,
+                "active_routine": "morning_routine",
+                "first_run_completed": False,
+                "last_control_center_version": "2",
+            },
+        )
 
     def _deep_merge(self, base, update):
         for key, value in update.items():

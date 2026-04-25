@@ -1,6 +1,5 @@
 import logging
 import os
-import subprocess
 import sys
 import time
 import tkinter as tk
@@ -9,12 +8,14 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from src.audio_lock import PYAUDIO_LOCK
 from src.calibration import recommend_clap_settings
 from src.config import get_resource_path
-from src.logger import get_log_dir
 from src.startup_helper import apply_startup_state, get_startup_state
 from src.ui_assets import IconRegistry
-from src.ui_diagnostics import build_routine_launch_plan, build_troubleshooting_summary, resolve_log_file_path, tail_text_file
+from src.ui_first_run import FirstRunMixin
 from src.ui_layout import ScrollableFrame, preferred_window_geometry
+from src.ui_monitor_preview import draw_layout_preview
 from src.ui_theme import add_tooltip, apply_theme
+from src.ui_troubleshooting import TroubleshootingMixin
+from src.ui_animation import next_animation_step, pulse_color
 from src.ui_logic import (
     UIValidationError,
     apply_form_state_to_config,
@@ -25,7 +26,6 @@ from src.ui_logic import (
     describe_detector_state,
     detect_duplicate_item_names,
     is_routine_item_enabled,
-    monitor_layout_preview_rect,
     normalize_routine_timing,
     parse_monitor_value,
     pick_default_monitor_option,
@@ -44,7 +44,7 @@ except ImportError:
     pyaudio = None
 
 
-class SettingsUI:
+class SettingsUI(FirstRunMixin, TroubleshootingMixin):
     _instance = None
 
     def __init__(
@@ -84,6 +84,9 @@ class SettingsUI:
         self.item_editor_vars = {}
         self.item_editor_widgets = []
         self.item_editor_canvas = None
+        self._preview_phase = 0
+        self._pulse_step = 0
+        self._first_run_prompted = False
 
     def open(self):
         if SettingsUI._instance:
@@ -188,6 +191,8 @@ class SettingsUI:
             self._bind_keyboard_shortcuts()
             self._mark_clean("Ready")
             self.root.after(500, self._update_runtime_header)
+            self.root.after(700, self._animate_control_center)
+            self.root.after(900, self._maybe_show_first_run)
             logger.info("UI_EVENT: settings_window_mainloop_start")
             self.root.mainloop()
             logger.info("UI_EVENT: settings_window_mainloop_end")
@@ -219,6 +224,25 @@ class SettingsUI:
         self._create_dashboard_metric(overview, 0, "Runtime", self.dashboard_status_var)
         self._create_dashboard_metric(overview, 1, "Next Action", self.dashboard_next_action_var)
         self._create_dashboard_metric(overview, 2, "Startup", self.dashboard_startup_var)
+
+        setup_frame = ttk.LabelFrame(content, text="Setup Path")
+        setup_frame.pack(fill="x", padx=10, pady=8)
+        setup_frame.columnconfigure(1, weight=1)
+        setup_image = self.icons.get("setup_welcome") if self.icons else None
+        if setup_image:
+            ttk.Label(setup_frame, image=setup_image).grid(row=0, column=0, rowspan=2, sticky="w", padx=10, pady=10)
+        ttk.Label(
+            setup_frame,
+            text="First-run setup guides microphone readiness, routine creation, startup, and a final test.",
+            style="Hint.TLabel",
+            wraplength=560,
+        ).grid(row=0, column=1, sticky="w", padx=10, pady=(10, 4))
+        self._icon_button(
+            setup_frame,
+            icon="config",
+            text="Open First-Run Setup",
+            command=lambda: self._open_first_run_setup(auto=False),
+        ).grid(row=1, column=1, sticky="w", padx=10, pady=(0, 10))
 
         clap_frame = ttk.LabelFrame(content, text="Clap Detection")
         clap_frame.pack(fill="x", padx=10, pady=8)
@@ -535,70 +559,7 @@ class SettingsUI:
         ).pack(anchor="w", padx=10, pady=10)
 
     def _create_troubleshooting_tab(self):
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="Troubleshooting")
-        tab.grid_rowconfigure(0, weight=1)
-        tab.grid_columnconfigure(0, weight=1)
-
-        scroller = ScrollableFrame(tab)
-        scroller.grid(row=0, column=0, sticky="nsew")
-        content = scroller.content
-
-        diag = ttk.LabelFrame(content, text="Diagnostics & Troubleshooting")
-        diag.pack(fill="x", padx=10, pady=8)
-        ttk.Label(
-            diag,
-            text="If clap detection fails, check microphone status in General and review logs.",
-            style="Hint.TLabel",
-        ).pack(anchor="w", padx=8, pady=(8, 4))
-        row = ttk.Frame(diag)
-        row.pack(fill="x", padx=8, pady=(0, 8))
-        self._icon_button(row, icon="logs", text="Open Logs Folder", command=self._open_logs).pack(side="left")
-        self._icon_button(row, icon="config", text="Open Config File", command=self._open_config_file).pack(side="left", padx=8)
-        self._icon_button(row, icon="copy", text="Copy Summary", command=self._copy_diagnostics).pack(side="left")
-        self._icon_button(row, icon="copy", text="Copy Launch Plan", command=self._copy_routine_plan).pack(side="left", padx=8)
-        self._icon_button(row, icon="run", text="Run Active Routine", command=self._test_active_routine).pack(
-            side="left", padx=8
-        )
-        log_dir = get_log_dir()
-        ttk.Label(diag, text=f"Logs: {log_dir}", style="Hint.TLabel").pack(anchor="w", padx=8, pady=(0, 2))
-        ttk.Label(diag, text=f"Config: {self.config_manager.config_path}", style="Hint.TLabel").pack(anchor="w", padx=8, pady=(0, 8))
-        logs_box = ttk.Frame(diag)
-        logs_box.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        ttk.Label(logs_box, text="Recent log lines:", style="Hint.TLabel").pack(anchor="w")
-        self.logs_preview = tk.Text(logs_box, height=8, wrap="none", background="#111827", foreground="#e5e7eb")
-        self.logs_preview.pack(fill="both", expand=True, pady=(4, 4))
-        logs_actions = ttk.Frame(logs_box)
-        logs_actions.pack(fill="x")
-        ttk.Button(logs_actions, text="Refresh Log Preview", style="Secondary.TButton", command=self._refresh_log_preview).pack(side="left")
-        ttk.Button(logs_actions, text="Copy Log Preview", style="Secondary.TButton", command=self._copy_log_preview).pack(side="left", padx=8)
-        self._refresh_log_preview()
-
-        tray = ttk.LabelFrame(content, text="Tray Behavior")
-        tray.pack(fill="x", padx=10, pady=8)
-        ttk.Label(
-            tray,
-            text=(
-                "Jarvis runs in the system tray.\n"
-                "- Use tray menu to pause listening.\n"
-                "- Switch active routine quickly.\n"
-                "- Trigger routine manually."
-            ),
-            justify="left",
-        ).pack(anchor="w", padx=8, pady=8)
-
-        power = ttk.LabelFrame(content, text="Power User Notes")
-        power.pack(fill="x", padx=10, pady=8)
-        ttk.Label(
-            power,
-            text=(
-                "Use full executable paths for best reliability.\n"
-                "Use per-item delay and wait timeout for slow apps.\n"
-                "Keep item names close to window titles for smoother positioning."
-            ),
-            justify="left",
-            style="Hint.TLabel",
-        ).pack(anchor="w", padx=8, pady=8)
+        return TroubleshootingMixin._create_troubleshooting_tab(self)
 
     def _icon_button(self, parent, *, icon, text, command, style="Secondary.TButton", **kwargs):
         if self.icons:
@@ -1203,6 +1164,8 @@ class SettingsUI:
         if self.trigger_item_callback:
             self.trigger_item_callback(item, source="settings_test_item")
             self._set_status(f"Tested item '{item.get('name', 'Unnamed')}'.", level="success")
+            if self.root and hasattr(self, "_refresh_launch_history"):
+                self.root.after(1200, self._refresh_launch_history)
         else:
             messagebox.showinfo("Info", "Single-item test is not available right now.")
 
@@ -1259,6 +1222,18 @@ class SettingsUI:
         self.quick_state_label.config(text=text)
         self._update_dashboard_cards()
         self.root.after(1000, self._update_runtime_header)
+
+    def _animate_control_center(self):
+        if not self.root or not self.root.winfo_exists():
+            return
+        snapshot = self._get_runtime_snapshot()
+        self._pulse_step = next_animation_step(self._pulse_step, 12)
+        self._preview_phase = next_animation_step(self._preview_phase, 12)
+        if self.quick_state_label:
+            self.quick_state_label.config(foreground=pulse_color(self._pulse_step, active=snapshot.listening_enabled))
+        if self.item_editor_canvas and self.item_editor_vars:
+            self._refresh_item_editor_preview()
+        self.root.after(650, self._animate_control_center)
 
     def _on_tree_click(self, event):
         column = self.routine_tree.identify_column(event.x)
@@ -1345,7 +1320,7 @@ class SettingsUI:
                     raise RuntimeError(f"Failed to set startup to {requested}. Actual state is {actual['enabled']}.")
                 validate_full_config_data(self.config_manager.data)
 
-            self.config_manager.save()
+            self.config_manager.save(create_backup=True, backup_reason="ui-save")
 
             if self.switch_routine_callback:
                 self.switch_routine_callback(selected_routine, source="settings")
@@ -1362,6 +1337,8 @@ class SettingsUI:
                 form_state.active_routine,
             )
             self._mark_clean("Saved and applied")
+            if hasattr(self, "_refresh_backup_list"):
+                self._refresh_backup_list()
             if close_window:
                 self._set_status("Settings saved.", level="success")
                 self._close_window()
@@ -1458,6 +1435,8 @@ class SettingsUI:
         if self.trigger_routine_callback:
             self.trigger_routine_callback(source="settings_test")
             self._set_status("Triggered active routine.", level="success")
+            if self.root and hasattr(self, "_refresh_launch_history"):
+                self.root.after(1200, self._refresh_launch_history)
         else:
             messagebox.showinfo("Info", "Routine trigger is not available right now.")
 
@@ -1470,6 +1449,8 @@ class SettingsUI:
         if self.trigger_routine_callback:
             self.trigger_routine_callback(source="settings_selected_routine")
             self._set_status(f"Triggered routine '{routine}'.", level="success")
+            if self.root and hasattr(self, "_refresh_launch_history"):
+                self.root.after(1200, self._refresh_launch_history)
 
     def _open_guided_calibration(self):
         if not self.detector or not getattr(self.detector, "stream", None):
@@ -1606,102 +1587,7 @@ class SettingsUI:
         apply_btn.config(command=apply_recommendation)
 
     def _draw_layout_preview(self, canvas, position):
-        canvas.delete("all")
-        monitor_x, monitor_y, monitor_w, monitor_h = 15, 10, 190, 105
-        taskbar_h = 14
-        canvas.create_rectangle(monitor_x, monitor_y, monitor_x + monitor_w, monitor_y + monitor_h, fill="#1f2937", outline="#94a3b8")
-        canvas.create_rectangle(
-            monitor_x + 2,
-            monitor_y + monitor_h - taskbar_h,
-            monitor_x + monitor_w - 2,
-            monitor_y + monitor_h - 2,
-            fill="#374151",
-            outline="",
-        )
-        work_x = monitor_x + 2
-        work_y = monitor_y + 2
-        work_w = monitor_w - 4
-        work_h = monitor_h - taskbar_h - 4
-        px, py, pw, ph = monitor_layout_preview_rect(position)
-        canvas.create_rectangle(
-            work_x + int(work_w * px),
-            work_y + int(work_h * py),
-            work_x + int(work_w * (px + pw)),
-            work_y + int(work_h * (py + ph)),
-            fill="#2563eb",
-            outline="#bfdbfe",
-            width=2,
-        )
-        canvas.create_text(monitor_x + 6, monitor_y + 8, text="Taskbar-safe area", anchor="w", fill="#e5e7eb", font=("", 8))
-        canvas.create_text(monitor_x + 6, monitor_y + monitor_h - 7, text="Taskbar", anchor="w", fill="#d1d5db", font=("", 7))
-
-    def _resolve_log_file_path(self):
-        return resolve_log_file_path(self.config_manager.data)
-
-    def _refresh_log_preview(self):
-        if not self.logs_preview:
-            return
-        log_path = self._resolve_log_file_path()
-        contents = tail_text_file(log_path, line_count=80)
-        self.logs_preview.config(state="normal")
-        self.logs_preview.delete("1.0", "end")
-        self.logs_preview.insert("1.0", contents)
-        self.logs_preview.config(state="disabled")
-
-    def _copy_log_preview(self):
-        if not self.logs_preview:
-            return
-        text = self.logs_preview.get("1.0", "end").strip()
-        if not text:
-            return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self._set_status("Log preview copied to clipboard.", level="success")
-
-    def _open_logs(self):
-        log_dir = get_log_dir()
-        if not os.path.exists(log_dir):
-            messagebox.showinfo("Information", f"Log directory does not exist yet: {log_dir}")
-            return
-        if sys.platform == "win32":
-            os.startfile(log_dir)
-        else:
-            subprocess.Popen(["xdg-open", log_dir])
-
-    def _open_config_file(self):
-        config_path = os.path.abspath(self.config_manager.config_path)
-        if not os.path.exists(config_path):
-            messagebox.showwarning("Config not found", f"Config file does not exist yet:\n{config_path}")
-            return
-        if sys.platform == "win32":
-            os.startfile(config_path)
-        else:
-            subprocess.Popen(["xdg-open", config_path])
-
-    def _copy_diagnostics(self):
-        status = self._get_runtime_status()
-        snapshot = self._get_runtime_snapshot()
-        startup_enabled = self.startup_var.get() if hasattr(self, "startup_var") else None
-        summary = build_troubleshooting_summary(
-            snapshot=snapshot,
-            status=status,
-            threshold=float(self.threshold_var.get()),
-            min_interval=float(self.min_interval_var.get()),
-            log_dir=get_log_dir(),
-            config_path=self.config_manager.config_path,
-            startup_enabled=startup_enabled,
-        )
-        self.root.clipboard_clear()
-        self.root.clipboard_append(summary)
-        self._set_status("Troubleshooting summary copied to clipboard.", level="success")
-
-    def _copy_routine_plan(self):
-        routine_name = self.selected_routine_var.get() or self._get_runtime_snapshot().active_routine
-        items = self.config_manager.routines.get(routine_name, {}).get("items", [])
-        plan = build_routine_launch_plan(routine_name, items)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(plan)
-        self._set_status("Routine launch plan copied to clipboard.", level="success")
+        draw_layout_preview(canvas, position, phase=self._preview_phase)
 
     def _get_runtime_status(self):
         if not self.detector:

@@ -11,6 +11,8 @@ Jarvis is a Windows-first background utility that listens for a double clap and 
 - Runs from system tray with manual trigger, settings, and graceful quit.
 - Provides a native Control Center with guided clap calibration, live runtime status, routine editing, and troubleshooting.
 - Supports selecting and switching active routines quickly from tray and settings.
+- Records local launch history so failed, skipped, and dry-run launches are easy to inspect.
+- Creates config backups before Control Center saves and supports restoring a previous config.
 
 ## Quick Start (Windows)
 
@@ -27,8 +29,8 @@ pip install -r requirements.txt
 python -m src.main
 ```
 
-4. Open tray icon -> `Settings...` and tune microphone threshold if needed.
-5. Use `Guided Calibration...` in the General tab for first-run setup.
+4. Open tray icon -> `Settings...` to use the Control Center.
+5. Start with `Dashboard` -> `Open First-Run Setup` to check microphone readiness, build a routine, test it, and choose startup behavior.
 
 ## First-Run Tips
 
@@ -58,6 +60,8 @@ system:
   run_on_startup: true
   startup_delay: 0.0
   active_routine: morning_routine
+  first_run_completed: false
+  last_control_center_version: "2"
 
 routines:
   morning_routine:
@@ -98,6 +102,8 @@ routines:
 ### System Fields
 
 - `system.active_routine`: Default routine used by clap trigger and tray actions.
+- `system.first_run_completed`: Tracks whether the first-run setup flow has been completed or skipped.
+- `system.last_control_center_version`: Records the last Control Center setup metadata version.
 
 ## Architecture
 
@@ -110,6 +116,9 @@ Core modules:
 
 UI modules:
 - `src/ui.py`: Tk view orchestration and widget wiring.
+- `src/ui_first_run.py`: first-run setup wizard.
+- `src/ui_troubleshooting.py`: diagnostics, launch history, logs, and backup/restore panels.
+- `src/ui_monitor_preview.py` + `src/ui_animation.py`: native preview drawing and lightweight animation helpers.
 - `src/ui_models.py`: typed UI form/runtime state objects.
 - `src/ui_logic.py`: UI-side validation, monitor parsing, config-apply helpers.
 - `src/ui_routines.py`: routine item store operations (add/edit/remove/reorder).
@@ -120,7 +129,7 @@ UI modules:
 
 ### Extension Points
 
-- Add new UI panel: create tab widgets in `src/ui.py` and keep non-widget rules in `src/ui_logic.py`.
+- Add new UI panel: prefer a focused `src/ui_*.py` helper or mixin and keep non-widget rules in testable helpers.
 - Add new routine item fields: update `build_routine_item` in `src/ui_logic.py`, then extend launcher handling.
 - Add new validation rules: extend `src/validator.py`; UI will surface save errors through existing error flow.
 - Add new clap tuning settings: wire defaults in `src/config.py`, validate in `src/validator.py`, and apply in `ClapDetector.refresh_settings`.
@@ -129,6 +138,7 @@ UI modules:
 
 - The settings window is now a native Control Center with anchored action buttons, scroll-safe pages, and a clearer four-tab workflow.
 - `Dashboard` shows runtime state, next launch action, startup state, live mic meter, clap sensitivity, sound feedback, and quick actions.
+- `Dashboard` exposes first-run setup for microphone readiness, first routine creation, startup preference, and a final test.
 - Live detector state is presented in plain language (`Listening`, `Noise Too Low`, `Too Loud`, `Clap Detected`, `Cooldown`, `Ignored Noise`, `Device Error`).
 - `Calibration` provides the first-run wizard entry point and explains the ambient-noise and clap-sample phases.
 - Guided calibration:
@@ -151,9 +161,16 @@ UI modules:
 - `Troubleshooting` provides logs, config paths, diagnostics, and recovery hints.
   - Open Logs Folder, Open Config File, and copy a troubleshooting summary to clipboard.
   - Copy a launch plan for the selected routine, including disabled items and placement targets.
+  - Review local Launch History with status filters for `success`, `skipped`, and `failure`.
+  - Copy, clear, or open the `launch_history.jsonl` file.
+  - Create a config backup, restore a validated previous backup, or open the backups folder.
   - Built-in recent log preview (refresh/copy) for quicker issue triage.
 
-Small toolbar icons live in `assets/ui/`. They are bundled through the existing `assets` PyInstaller rule and the UI falls back to text-only buttons if an icon cannot load.
+Small toolbar icons and the generated first-run welcome visual live in `assets/ui/`. They are bundled through the existing `assets` PyInstaller rule and the UI falls back to text-only buttons if an icon cannot load.
+
+Local recovery files:
+- Launch history: the app log directory, usually `%APPDATA%\JarvisLauncher\logs\launch_history.jsonl` on Windows.
+- Config backups: `backups\config-YYYYMMDD-HHMMSS-*.yaml` next to the active `config.yaml`.
 
 Keyboard shortcuts:
 - `Ctrl+S` or `Ctrl+Enter`: apply changes.
@@ -197,6 +214,8 @@ python -m pytest -q
 - `PyAudio is not installed`: clap detection cannot start. Install PyAudio wheel for your Python version.
 - `Timeout waiting for window`: app launched but did not expose a window title in time. Increase item `delay` or `window_wait_timeout`.
 - `target was not found`: verify absolute paths for `app` and `shortcut` items.
+- Missing or skipped routine item: open `Troubleshooting` -> `Launch History` and filter to `failure` or `skipped`.
+- Bad config edit: open `Troubleshooting` -> `Config Backups` and restore a validated backup.
 - No tray icon: run without `--no-tray`, or verify desktop/session supports tray integration.
 - Startup toggle mismatch: run Jarvis as the same Windows user that owns the startup registry entry.
 - Calibration unavailable: detector stream is not ready yet. Wait for runtime to initialize and try again.

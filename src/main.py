@@ -43,6 +43,7 @@ from src.audio import AudioEngine
 from src.ui import SettingsUI
 from src.startup_helper import get_startup_state, apply_startup_state, get_startup_command
 from src.ui_models import AppRuntimeSnapshot
+from src.launch_history import append_launch_history, append_launch_history_many
 
 class JarvisApp:
     def __init__(self, args):
@@ -144,6 +145,30 @@ class JarvisApp:
         self.stop_event = threading.Event()
         self.tray_icon = None
 
+    def _record_launch_results(self, results, *, source):
+        args = getattr(self, "args", None)
+        try:
+            append_launch_history_many(
+                results or [],
+                routine=getattr(args, "routine", ""),
+                source=source,
+                dry_run=bool(getattr(args, "dry_run", False)),
+            )
+        except Exception:
+            self.logger.warning("EVENT: launch_history_write_failed source=%s", source, exc_info=True)
+
+    def _record_launch_result(self, result, *, source):
+        args = getattr(self, "args", None)
+        try:
+            append_launch_history(
+                result,
+                routine=getattr(args, "routine", ""),
+                source=source,
+                dry_run=bool(getattr(args, "dry_run", False)),
+            )
+        except Exception:
+            self.logger.warning("EVENT: launch_history_write_failed source=%s", source, exc_info=True)
+
     def on_trigger_routine(self, source="unknown"):
         def run():
             elapsed = time.monotonic() - self.start_time_monotonic
@@ -166,7 +191,13 @@ class JarvisApp:
                 if self.audio:
                     self.audio.play_startup()
                 if self.launcher:
-                    self.launcher.launch_routine(self.args.routine)
+                    results = self.launcher.launch_routine(self.args.routine)
+                    self._record_launch_results(results, source=source)
+                else:
+                    self._record_launch_result(
+                        {"status": "failure", "message": "Launcher is not available."},
+                        source=source,
+                    )
                 if self.audio:
                     self.audio.play_success()
             finally:
@@ -194,7 +225,13 @@ class JarvisApp:
                 item_name = item.get("name", "Unnamed")
                 self.logger.info("EVENT: routine_item_test source=%s item=%s", source, item_name)
                 if self.launcher:
-                    self.launcher.launch_item(item)
+                    result = self.launcher.launch_item(item)
+                    self._record_launch_result(result, source=source)
+                else:
+                    self._record_launch_result(
+                        {"status": "failure", "item": item_name, "message": "Launcher is not available."},
+                        source=source,
+                    )
             finally:
                 self.routine_lock.release()
 

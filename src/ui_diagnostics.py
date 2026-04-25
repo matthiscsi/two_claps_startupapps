@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 
+from src.config_backup import get_backup_dir
 from src.logger import get_log_dir
+from src.launch_history import get_launch_history_path
 from src.ui_models import AppRuntimeSnapshot, RuntimeStatus
 
 
@@ -61,7 +63,9 @@ def build_troubleshooting_summary(
         f"- Threshold: {float(threshold):.3f}\n"
         f"- Min interval: {float(min_interval):.2f}\n"
         f"- Log directory: {log_dir}\n"
+        f"- Launch history: {get_launch_history_path(log_dir)}\n"
         f"- Config path: {os.path.abspath(config_path)}\n"
+        f"- Config backups: {get_backup_dir(config_path)}\n"
     )
 
 
