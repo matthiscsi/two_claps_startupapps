@@ -38,6 +38,18 @@ class Launcher:
 
         logger.info(f"Detected {len(self.monitors)} monitors.")
 
+    def _launch_result(self, status, *, item=None, message="", routine="", item_name=None):
+        item = item if isinstance(item, dict) else {}
+        return {
+            "status": status,
+            "routine": routine,
+            "item": item_name or item.get("name", ""),
+            "item_type": item.get("type", ""),
+            "target": item.get("target", ""),
+            "dry_run": self.dry_run,
+            "message": message,
+        }
+
     @staticmethod
     def get_monitor_options():
         """Returns a list of descriptive monitor labels for the UI."""
@@ -58,11 +70,11 @@ class Launcher:
             routines = self.config.routines
         except Exception as e:
             logger.error(f"Failed to access routines in config: {e}")
-            return
+            return [self._launch_result("failure", routine=routine_name, message=f"Failed to access routines: {e}")]
 
         if routine_name not in routines:
             logger.error(f"Routine '{routine_name}' not found in config.")
-            return
+            return [self._launch_result("failure", routine=routine_name, message="Routine not found in config.")]
 
         logger.info(f"--- Starting Routine: {routine_name} ---")
         items = routines[routine_name].get("items", [])
@@ -79,27 +91,50 @@ class Launcher:
         logger.info(f"Launch sequence: {sequence}")
         logger.info(f"Found {len(items)} items in routine, {len(enabled_items)} enabled.")
 
+        results = []
         for i, item in enumerate(items):
             try:
                 if not isinstance(item, dict):
                     logger.error(f"[{i+1}/{len(items)}] Invalid item format (expected dict): {item}")
+                    results.append(
+                        self._launch_result(
+                            "failure",
+                            routine=routine_name,
+                            item_name=f"Item {i + 1}",
+                            message="Invalid item format (expected dict).",
+                        )
+                    )
                     continue
                 logger.info(f"[{i+1}/{len(items)}] Processing: {item.get('name', 'Unnamed')}")
-                self.launch_item(item)
+                result = self.launch_item(item)
+                if result:
+                    result["routine"] = routine_name
+                    results.append(result)
             except Exception as e:
                 logger.error(f"Error executing routine item {item.get('name', 'Unnamed')}: {e}", exc_info=True)
+                results.append(
+                    self._launch_result(
+                        "failure",
+                        item=item if isinstance(item, dict) else None,
+                        routine=routine_name,
+                        message=f"Unexpected item error: {e}",
+                    )
+                )
 
         logger.info(f"--- Routine {routine_name} Completed ---")
+        if not items:
+            results.append(self._launch_result("skipped", routine=routine_name, message="Routine has no items."))
+        return results
 
     def launch_item(self, item):
         if not item:
             logger.warning("Empty item passed to launch_item. Skipping.")
-            return
+            return self._launch_result("skipped", message="Empty item passed to launch_item.")
 
         name = item.get("name", "Unknown")
         if item.get("enabled", True) is False:
             logger.info("SKIP: Routine item '%s' is disabled.", name)
-            return
+            return self._launch_result("skipped", item=item, message="Routine item is disabled.")
 
         logger.info(f"START: Launching item '{name}'")
         item_type = item.get("type")
@@ -113,10 +148,10 @@ class Launcher:
 
         if not item_type or not target:
             logger.error(f"Item '{name}' is missing required fields (type: {item_type}, target: {target}). Skipping.")
-            return
+            return self._launch_result("failure", item=item, message="Item is missing required type or target.")
 
         if not self._validate_launch_target(item_type=item_type, target=target, item_name=name):
-            return
+            return self._launch_result("failure", item=item, message="Launch target is invalid or missing.")
 
         # Normalize monitor
         monitor_idx = self._resolve_monitor_index(monitor)
@@ -125,11 +160,12 @@ class Launcher:
             logger.info(f"{name} is already running.")
             if self.dry_run:
                 logger.info(f"[DRY-RUN] Would reposition {name}")
+                return self._launch_result("success", item=item, message="Dry run: item is already running; would reposition.")
             else:
                 self.position_window(name, monitor_idx, position=position,
                                      window_title_match=window_title_match,
                                      is_browser=(item_type=="url"))
-            return
+            return self._launch_result("success", item=item, message="Item already running; repositioned if possible.")
 
         if delay > 0:
             logger.info(f"Waiting {delay}s before launching {name}...")
@@ -140,7 +176,7 @@ class Launcher:
 
         if self.dry_run:
             logger.info(f"[DRY-RUN] Would launch {name}")
-            return
+            return self._launch_result("success", item=item, message="Dry run: would launch item.")
 
         try:
             if item_type == "url":
@@ -148,21 +184,26 @@ class Launcher:
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=True,
                                        timeout=wait_timeout, poll_interval=poll_interval)
+                return self._launch_result("success", item=item, message="URL opened and positioning attempted.")
             elif item_type == "app":
                 self.launch_app(target, item.get("args"))
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=False,
                                        timeout=wait_timeout, poll_interval=poll_interval)
+                return self._launch_result("success", item=item, message="Application launched and positioning attempted.")
             elif item_type == "shortcut":
                 os.startfile(target)
                 self.wait_and_position(name, monitor_idx, position,
                                        window_title_match=window_title_match, is_browser=False,
                                        timeout=wait_timeout, poll_interval=poll_interval)
                 logger.info(f"SUCCESS: Launched {name} ({item_type})")
+                return self._launch_result("success", item=item, message="Shortcut launched and positioning attempted.")
             else:
                 logger.warning(f"FAIL: Unknown item type: {item_type}")
+                return self._launch_result("failure", item=item, message=f"Unknown item type: {item_type}")
         except Exception as e:
             logger.error(f"FAIL: Failed to launch {name}: {e}")
+            return self._launch_result("failure", item=item, message=f"Failed to launch: {e}")
 
     def _resolve_monitor_index(self, monitor):
         # 1. Identify primary monitor index

@@ -17,6 +17,8 @@ logging:
   level: INFO
 system:
   active_routine: morning_routine
+  first_run_completed: false
+  last_control_center_version: '2'
   run_on_startup: null
   startup_delay: 0.0
 routines:

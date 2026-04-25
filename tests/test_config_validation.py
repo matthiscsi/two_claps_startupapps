@@ -23,6 +23,7 @@ def test_config_migration(tmp_path):
     assert "items" in config.routines["morning_routine"]
     assert config.routines["morning_routine"]["items"][0]["target"] == "path1"
     assert config.routines["morning_routine"]["items"][0]["name"] == "App1"
+    assert config.system_settings["first_run_completed"] is False
 
 def test_validate_valid_config():
     valid_data = {
@@ -109,3 +110,19 @@ def test_validate_invalid_enabled_value():
     }
     with pytest.raises(ConfigValidationError, match="invalid enabled"):
         validate_config(invalid_data)
+
+
+def test_validate_first_run_system_metadata_types():
+    invalid_first_run = {
+        "routines": {"test": {"items": [{"name": "App", "type": "app", "target": "calc.exe"}]}},
+        "system": {"active_routine": "test", "first_run_completed": "nope"},
+    }
+    with pytest.raises(ConfigValidationError, match="first_run_completed"):
+        validate_config(invalid_first_run)
+
+    invalid_version = {
+        "routines": {"test": {"items": [{"name": "App", "type": "app", "target": "calc.exe"}]}},
+        "system": {"active_routine": "test", "last_control_center_version": 2},
+    }
+    with pytest.raises(ConfigValidationError, match="last_control_center_version"):
+        validate_config(invalid_version)
