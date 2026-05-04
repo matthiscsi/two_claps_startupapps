@@ -39,6 +39,7 @@ class ClapDetector:
         self.crest_factor_min = self.settings.get("crest_factor_min", 4.0)
         self.sustained_peak_ratio = self.settings.get("sustained_peak_ratio", 0.60)
         self.max_sustained_frames = int(self.settings.get("max_sustained_frames", 3))
+        self.input_device_index = self.settings.get("input_device_index")
         self.machine = DoubleClapStateMachine(
             min_interval=self.min_interval,
             max_interval=self.max_interval,
@@ -54,6 +55,7 @@ class ClapDetector:
         self.crest_factor_min = settings.get("crest_factor_min", self.crest_factor_min)
         self.sustained_peak_ratio = settings.get("sustained_peak_ratio", self.sustained_peak_ratio)
         self.max_sustained_frames = int(settings.get("max_sustained_frames", self.max_sustained_frames))
+        self.input_device_index = settings.get("input_device_index", self.input_device_index)
         self.machine = DoubleClapStateMachine(
             min_interval=self.min_interval,
             max_interval=self.max_interval,
@@ -101,21 +103,47 @@ class ClapDetector:
                 logger.info("SUCCESS: PyAudio instance created.")
 
                 try:
-                    logger.info("START: Querying default input device...")
-                    device_info = self.p.get_default_input_device_info()
+                    if isinstance(self.input_device_index, int):
+                        logger.info("START: Querying configured input device index=%s...", self.input_device_index)
+                        device_info = self.p.get_device_info_by_index(self.input_device_index)
+                    else:
+                        logger.info("START: Querying default input device...")
+                        device_info = self.p.get_default_input_device_info()
                     logger.info(f"SUCCESS: Using input device: {device_info.get('name')} (Index: {device_info.get('index')})")
                     logger.info(f"Device Details: Sample Rate: {device_info.get('defaultSampleRate')}, Max Input Channels: {device_info.get('maxInputChannels')}")
                 except Exception as e:
                     logger.warning(f"FAIL: Could not retrieve default input device info: {e}", exc_info=True)
+                    device_info = None
 
-                logger.info(f"START: Opening audio stream (Rate: {self.sampling_rate}, Format: paFloat32, Channels: 1, FrameSize: {self.frame_size})...")
-                self.stream = self.p.open(
+                stream_kwargs = dict(
                     format=pyaudio.paFloat32,
                     channels=1,
                     rate=self.sampling_rate,
                     input=True,
                     frames_per_buffer=self.frame_size,
                 )
+                if device_info and isinstance(device_info.get("index"), int):
+                    stream_kwargs["input_device_index"] = int(device_info["index"])
+
+                logger.info(
+                    "START: Opening audio stream (Rate: %s, Format: paFloat32, Channels: 1, FrameSize: %s, InputDevice: %s)...",
+                    self.sampling_rate,
+                    self.frame_size,
+                    stream_kwargs.get("input_device_index", "default"),
+                )
+                try:
+                    self.stream = self.p.open(**stream_kwargs)
+                except Exception as e:
+                    if "input_device_index" in stream_kwargs:
+                        logger.warning(
+                            "Configured input device failed (index=%s). Falling back to default input device. Error: %s",
+                            stream_kwargs["input_device_index"],
+                            e,
+                        )
+                        stream_kwargs.pop("input_device_index", None)
+                        self.stream = self.p.open(**stream_kwargs)
+                    else:
+                        raise
                 logger.info("SUCCESS: Audio stream object created.")
 
                 logger.info("START: Starting audio stream...")

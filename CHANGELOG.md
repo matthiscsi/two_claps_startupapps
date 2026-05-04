@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Improved
+- Default config path now uses `%APPDATA%\JarvisLauncher\config.yaml` with safe migration from legacy local `config.yaml`.
+- Tray menu now exposes explicit production actions: Open Settings, Enable/Disable Listening, Run Routine Now, View Logs, and Quit.
+- Clap detector now supports optional `clap_settings.input_device_index` with fallback to default microphone if the configured device is unavailable.
+- Windows release workflow now publishes portable zip and installer artifacts in addition to the standalone exe.
 - Refactored clap timing logic into a dedicated `DoubleClapStateMachine` for cleaner behavior and better testability.
 - Improved clap detector timing to use monotonic clock logic and explicit state transitions.
 - Added runtime-safe clap settings refresh path (`ClapDetector.refresh_settings`).
@@ -30,6 +34,8 @@
 - Reduced intrusive popups by preferring inline status feedback for common actions.
 
 ### Added
+- Inno Setup installer script with integrated uninstall support, startup entry cleanup, running-process stop, and optional user-data removal prompt.
+- New config path tests covering AppData default path and legacy-config migration behavior.
 - New clap-state unit tests: double clap, cooldown ignore, timeout reset.
 - New validator range tests for clap filter and threshold validation.
 - New launcher guardrail tests for missing paths.

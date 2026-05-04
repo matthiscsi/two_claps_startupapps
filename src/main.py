@@ -6,6 +6,7 @@ import signal
 import time
 import threading
 import ctypes
+import subprocess
 from PIL import Image, ImageDraw
 
 # Early logging setup to capture everything from the start
@@ -36,7 +37,7 @@ except (ImportError, Exception):
     # pystray can throw exceptions on import if display environment is missing (e.g. Linux without X)
     pystray = None
 
-from src.config import Config, get_resource_path
+from src.config import Config, get_default_config_path, get_resource_path
 from src.detector import ClapDetector
 from src.launcher import Launcher
 from src.audio import AudioEngine
@@ -44,6 +45,7 @@ from src.ui import SettingsUI
 from src.startup_helper import get_startup_state, apply_startup_state, get_startup_command
 from src.ui_models import AppRuntimeSnapshot
 from src.launch_history import append_launch_history, append_launch_history_many
+from src.logger import get_log_dir
 
 class JarvisApp:
     def __init__(self, args):
@@ -338,6 +340,9 @@ class JarvisApp:
         def on_toggle_listening(icon, item):
             self.toggle_listening()
 
+        def on_open_logs(icon, item):
+            self.open_logs_folder()
+
         def make_routine_handler(routine_name):
             def _handler(icon, item):
                 self.set_active_routine(routine_name, source="tray_switch")
@@ -354,18 +359,29 @@ class JarvisApp:
         ]
 
         menu = pystray.Menu(
-            pystray.MenuItem(lambda item: f"Trigger {self.args.routine}", on_trigger),
+            pystray.MenuItem("Run Routine Now", on_trigger),
             pystray.MenuItem(
-                "Listening Enabled",
+                lambda item: "Disable Listening" if self.listening_enabled else "Enable Listening",
                 on_toggle_listening,
-                checked=lambda item: self.listening_enabled,
             ),
             pystray.MenuItem("Switch Routine", pystray.Menu(*routine_items)),
-            pystray.MenuItem("Settings...", on_settings),
+            pystray.MenuItem("Open Settings", on_settings),
+            pystray.MenuItem("View Logs", on_open_logs),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_quit)
         )
         return pystray.Icon("JarvisLauncher", load_icon(), "Jarvis Launcher", menu=menu)
+
+    def open_logs_folder(self):
+        log_dir = get_log_dir()
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            if sys.platform == "win32":
+                os.startfile(log_dir)
+            else:
+                subprocess.Popen(["xdg-open", log_dir])
+        except Exception:
+            self.logger.warning("EVENT: open_logs_failed path=%s", log_dir, exc_info=True)
 
     def show_settings(self):
         self.logger.info(
@@ -476,7 +492,7 @@ class JarvisApp:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Double-clap routine launcher (Jarvis style)")
-    parser.add_argument("--config", default="config.yaml", help="Path to config file")
+    parser.add_argument("--config", default=get_default_config_path(), help="Path to config file")
     parser.add_argument("--routine", default="morning_routine", help="Routine to run on double clap")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually launch apps, just log")
     parser.add_argument("--no-audio", action="store_true", help="Disable audio/TTS")

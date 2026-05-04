@@ -11,8 +11,25 @@ Jarvis is a Windows-first background utility that listens for a double clap and 
 - Runs from system tray with manual trigger, settings, and graceful quit.
 - Provides a native Control Center with guided clap calibration, live runtime status, routine editing, and troubleshooting.
 - Supports selecting and switching active routines quickly from tray and settings.
+- Tray menu includes: `Open Settings`, `Enable/Disable Listening`, `Run Routine Now`, `View Logs`, and `Quit`.
 - Records local launch history so failed, skipped, and dry-run launches are easy to inspect.
 - Creates config backups before Control Center saves and supports restoring a previous config.
+
+## Install (Windows)
+
+### Recommended (Installer)
+
+1. Download `JarvisLauncher-Setup-<version>.exe` from Releases.
+2. Run the installer.
+3. Optional during install:
+   - create desktop shortcut,
+   - enable `Launch Jarvis when I sign in`.
+4. Start Jarvis from Start Menu.
+
+### Portable
+
+1. Download `JarvisLauncher-portable.zip`.
+2. Extract and run `JarvisLauncher.exe`.
 
 ## Quick Start (Windows)
 
@@ -23,7 +40,7 @@ Jarvis is a Windows-first background utility that listens for a double clap and 
 pip install -r requirements.txt
 ```
 
-3. Run:
+3. Run (development mode):
 
 ```bash
 python -m src.main
@@ -170,7 +187,7 @@ Small toolbar icons and the generated first-run welcome visual live in `assets/u
 
 Local recovery files:
 - Launch history: the app log directory, usually `%APPDATA%\JarvisLauncher\logs\launch_history.jsonl` on Windows.
-- Config backups: `backups\config-YYYYMMDD-HHMMSS-*.yaml` next to the active `config.yaml`.
+- Config/backups: `%APPDATA%\JarvisLauncher\config.yaml` and `%APPDATA%\JarvisLauncher\backups\...`.
 
 Keyboard shortcuts:
 - `Ctrl+S` or `Ctrl+Enter`: apply changes.
@@ -203,6 +220,13 @@ python build_exe.py
 
 Output: `dist/JarvisLauncher.exe`
 
+## Build Installer
+
+1. Build executable (`python build_exe.py`).
+2. Install [Inno Setup](https://jrsoftware.org/isinfo.php).
+3. Compile `installer/JarvisLauncher.iss` with Inno Setup Compiler.
+4. Output installer: `dist/JarvisLauncher-Setup-<version>.exe`.
+
 ## Testing
 
 ```bash
@@ -221,10 +245,25 @@ python -m pytest -q
 - Calibration unavailable: detector stream is not ready yet. Wait for runtime to initialize and try again.
 - Settings clipping on high DPI: scroll inside the tab content; footer buttons stay anchored and always visible.
 
+## Uninstall
+
+1. Open Windows `Installed apps` / `Apps & features`.
+2. Select `Jarvis Launcher` and choose `Uninstall`.
+3. Uninstaller behavior:
+   - always removes installed app files and installer-created shortcuts,
+   - always removes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\JarvisLauncher`,
+   - attempts to stop running `JarvisLauncher.exe` safely before file removal,
+   - asks whether to remove user data in `%APPDATA%\JarvisLauncher` (default recommendation: keep).
+
 ## CI / Release
 
 - `CI` workflow: multi-version Python tests + source compile sanity check.
-- `Build and Release Windows Executable`: runs tests, builds with PyInstaller, uploads artifact, and publishes tagged releases.
+- `Build and Release Windows Executable`: runs tests, builds `JarvisLauncher.exe`, packages portable zip, builds Inno Setup installer, uploads artifacts, and publishes tagged releases.
+
+## Production Readiness
+
+- Current known limitation: clap detection quality depends on microphone placement and room acoustics.
+- Mitigation already included: guided calibration, conservative transient filtering, and adjustable thresholds/cooldown.
 
 ## Notes
 

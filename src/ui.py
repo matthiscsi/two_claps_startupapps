@@ -1628,13 +1628,19 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
     def _get_microphone_label(self):
         if not pyaudio:
             return "Note: PyAudio not detected. Clap detection may be unavailable."
+        requested_index = self.config_manager.clap_settings.get("input_device_index")
         try:
             with PYAUDIO_LOCK:
                 p = pyaudio.PyAudio()
-                dev = p.get_default_input_device_info()
+                if isinstance(requested_index, int):
+                    dev = p.get_device_info_by_index(requested_index)
+                else:
+                    dev = p.get_default_input_device_info()
                 name = dev.get("name", "Default")
+                idx = dev.get("index")
                 p.terminate()
-            return f"Mic: {name}"
+            suffix = f" (index {idx})" if isinstance(idx, int) else ""
+            return f"Mic: {name}{suffix}"
         except Exception:
             return "Mic: Default system microphone"
 

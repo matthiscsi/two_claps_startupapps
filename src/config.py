@@ -18,15 +18,31 @@ def get_resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
+def get_app_data_dir():
+    """Return the canonical user-writable app data directory."""
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return os.path.join(appdata, "JarvisLauncher")
+    return os.path.abspath(".")
+
+
+def get_default_config_path():
+    """Return the default config path used when no --config is provided."""
+    return os.path.join(get_app_data_dir(), "config.yaml")
+
 DEFAULT_CONFIG = {
     "clap_settings": {
         "threshold": 0.15,
         "min_interval": 0.2,
+        "max_interval": 2.0,
         "filter_low": 1400,
         "filter_high": 1800,
         "order": 2,
         "sampling_rate": 44100,
-        "frame_duration": 0.02
+        "frame_duration": 0.02,
+        "input_device_index": None,
     },
     "routines": {
         "morning_routine": {
@@ -83,19 +99,20 @@ DEFAULT_CONFIG = {
 
 class Config:
     def __init__(self, config_path="config.yaml"):
-        self.config_path = config_path
+        normalized = config_path
+        if not normalized or str(normalized).strip() in {"", "config.yaml"}:
+            normalized = get_default_config_path()
+        self.config_path = os.path.abspath(normalized)
         self.data = copy.deepcopy(DEFAULT_CONFIG)
-
-        if not self.config_path:
-            print("Using default internal configuration (no config path provided).")
-            return
 
         # If config doesn't exist locally, try to extract it from bundled assets
         try:
+            self._migrate_legacy_local_config()
             if not os.path.exists(self.config_path):
                 try:
                     bundled_path = get_resource_path("config.yaml")
                     if os.path.exists(bundled_path) and bundled_path != os.path.abspath(self.config_path):
+                        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
                         shutil.copy(bundled_path, self.config_path)
                         print(f"Extracted bundled config to {self.config_path}")
                 except Exception as e:
@@ -109,6 +126,29 @@ class Config:
             self.load()
         else:
             self.save()
+
+    def _migrate_legacy_local_config(self):
+        """
+        Migrate a repository-local config.yaml to AppData only when default path
+        is used and AppData config is absent.
+        """
+        default_path = os.path.abspath(get_default_config_path())
+        if os.path.abspath(self.config_path) != default_path:
+            return
+
+        if os.path.exists(default_path):
+            return
+
+        legacy_path = os.path.abspath("config.yaml")
+        if legacy_path == default_path or not os.path.exists(legacy_path):
+            return
+
+        try:
+            os.makedirs(os.path.dirname(default_path), exist_ok=True)
+            shutil.copy2(legacy_path, default_path)
+            logger.info("Migrated legacy config from %s to %s", legacy_path, default_path)
+        except Exception:
+            logger.warning("Failed to migrate legacy config to AppData path.", exc_info=True)
 
     def load(self):
         logger.info(f"START: Loading config from {self.config_path}")

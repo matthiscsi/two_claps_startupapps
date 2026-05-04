@@ -37,11 +37,28 @@ jobs:
       run: |
         python build_exe.py
 
-    - name: Upload Artifact
+    - name: Create portable ZIP
+      run: |
+        powershell -Command "Compress-Archive -Path dist/JarvisLauncher.exe -DestinationPath dist/JarvisLauncher-portable.zip -Force"
+
+    - name: Install Inno Setup
+      run: |
+        choco install innosetup -y
+
+    - name: Build installer
+      shell: powershell
+      run: |
+        $version = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF.Replace('refs/tags/v','') } else { '0.1.0-dev' }
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" "installer\JarvisLauncher.iss"
+
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: JarvisLauncher-Windows
-        path: dist/JarvisLauncher.exe
+        path: |
+          dist/JarvisLauncher.exe
+          dist/JarvisLauncher-portable.zip
+          dist/JarvisLauncher-Setup-*.exe
         if-no-files-found: error
 
     - name: Release
@@ -51,9 +68,9 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         tag_name="${GITHUB_REF#refs/tags/}"
-        # Create release if it doesn't exist, otherwise upload to it
+        files=(dist/JarvisLauncher.exe dist/JarvisLauncher-portable.zip dist/JarvisLauncher-Setup-*.exe)
         if ! gh release view "$tag_name" >/dev/null 2>&1; then
-          gh release create "$tag_name" dist/JarvisLauncher.exe --title "Release $tag_name" --notes "Automated release for version $tag_name"
+          gh release create "$tag_name" "${files[@]}" --title "Release $tag_name" --notes "Automated release for version $tag_name"
         else
-          gh release upload "$tag_name" dist/JarvisLauncher.exe --clobber
+          gh release upload "$tag_name" "${files[@]}" --clobber
         fi
