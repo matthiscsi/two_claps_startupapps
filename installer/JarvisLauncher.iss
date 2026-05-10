@@ -32,8 +32,8 @@ Name: "startup"; Description: "Launch Jarvis when I sign in"; GroupDescription: 
 
 [Files]
 Source: "..\dist\JarvisLauncher.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Jarvis Launcher"; Filename: "{app}\{#MyAppExeName}"
