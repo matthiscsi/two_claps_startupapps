@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\JarvisLauncher
 DefaultGroupName=Jarvis Launcher
 DisableProgramGroupPage=yes
-OutputDir=dist
+OutputDir=..\dist
 OutputBaseFilename=JarvisLauncher-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
@@ -31,7 +31,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "startup"; Description: "Launch Jarvis when I sign in"; GroupDescription: "Windows integration:"
 
 [Files]
-Source: "dist\JarvisLauncher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\JarvisLauncher.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
