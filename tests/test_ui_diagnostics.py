@@ -22,6 +22,7 @@ def test_build_troubleshooting_summary_includes_runtime_and_paths():
         status=RuntimeStatus(detector_available=True, detector_active=False, state="IDLE", clap_count=0, peak=0.12),
         threshold=0.2,
         min_interval=0.4,
+        max_interval=2.0,
         log_dir="C:/logs",
         config_path="config.yaml",
         startup_enabled=True,
@@ -29,6 +30,7 @@ def test_build_troubleshooting_summary_includes_runtime_and_paths():
     assert "Active routine: morning" in summary
     assert "Startup enabled: True" in summary
     assert "Threshold: 0.200" in summary
+    assert "Max interval: 2.00" in summary
     assert "Launch history:" in summary
     assert "Config backups:" in summary
 

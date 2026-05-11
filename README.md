@@ -55,6 +55,7 @@ python -m src.main
 - Prefer guided calibration before changing values manually.
 - If false positives happen, raise `clap_settings.threshold`.
 - If one clap counts twice, raise `clap_settings.min_interval`.
+- If the second clap is missed unless you pause too long, raise `clap_settings.max_interval`.
 - Keep routine item names close to real window titles for better repositioning.
 
 ## Configuration
@@ -161,7 +162,7 @@ UI modules:
 - Guided calibration:
   - Measures ambient peaks.
   - Collects clap samples.
-  - Recommends threshold and cooldown.
+  - Recommends threshold, cooldown, and max gap between claps.
   - Applies values with one click (then `Apply`/`Save` persists).
 - `Routines` uses a split-pane editor:
   - Selecting active routine.
@@ -263,7 +264,7 @@ python -m pytest -q
 ## Production Readiness
 
 - Current known limitation: clap detection quality depends on microphone placement and room acoustics.
-- Mitigation already included: guided calibration, conservative transient filtering, and adjustable thresholds/cooldown.
+- Mitigation already included: guided calibration, conservative transient filtering, and adjustable thresholds/cooldown/max gap.
 
 ## Notes
 

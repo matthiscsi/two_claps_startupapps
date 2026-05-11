@@ -8,13 +8,21 @@ from statistics import median
 class CalibrationRecommendation:
     threshold: float
     min_interval: float
+    max_interval: float
     ambient_peak: float
     clap_peak: float
     confidence: str
     summary: str
 
 
-def recommend_clap_settings(ambient_peaks, clap_peaks, clap_intervals, current_threshold, current_min_interval):
+def recommend_clap_settings(
+    ambient_peaks,
+    clap_peaks,
+    clap_intervals,
+    current_threshold,
+    current_min_interval,
+    current_max_interval,
+):
     ambient = [float(v) for v in ambient_peaks if v is not None]
     claps = [float(v) for v in clap_peaks if v is not None and v > 0.0]
     intervals = [float(v) for v in clap_intervals if v is not None and v > 0.0]
@@ -29,15 +37,21 @@ def recommend_clap_settings(ambient_peaks, clap_peaks, clap_intervals, current_t
     if intervals:
         interval_median = median(intervals)
         min_interval = _clamp(interval_median * 0.55, 0.15, 0.75)
+        max_interval = _clamp(max(interval_median * 1.9, min_interval + 0.35), 0.35, 10.0)
     else:
         min_interval = _clamp(float(current_min_interval), 0.15, 0.75)
+        max_interval = _clamp(float(current_max_interval), 0.35, 10.0)
+
+    if max_interval <= min_interval:
+        max_interval = _clamp(min_interval + 0.35, 0.35, 10.0)
 
     confidence = "high" if len(claps) >= 4 else "medium" if len(claps) >= 2 else "low"
-    summary = _build_summary(ambient_peak, clap_peak, threshold, min_interval, confidence)
+    summary = _build_summary(ambient_peak, clap_peak, threshold, min_interval, max_interval, confidence)
 
     return CalibrationRecommendation(
         threshold=round(threshold, 3),
         min_interval=round(min_interval, 3),
+        max_interval=round(max_interval, 3),
         ambient_peak=round(ambient_peak, 3),
         clap_peak=round(clap_peak, 3),
         confidence=confidence,
@@ -49,9 +63,9 @@ def _clamp(value, low, high):
     return max(low, min(high, float(value)))
 
 
-def _build_summary(ambient_peak, clap_peak, threshold, min_interval, confidence):
+def _build_summary(ambient_peak, clap_peak, threshold, min_interval, max_interval, confidence):
     return (
         f"Ambient peak {ambient_peak:.3f}, clap peak {clap_peak:.3f}. "
-        f"Recommended threshold {threshold:.3f} and cooldown {min_interval:.3f}s "
+        f"Recommended threshold {threshold:.3f}, cooldown {min_interval:.3f}s, and max gap {max_interval:.3f}s "
         f"(confidence: {confidence})."
     )

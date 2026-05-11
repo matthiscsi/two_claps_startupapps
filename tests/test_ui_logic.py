@@ -100,6 +100,7 @@ def test_apply_form_state_to_config_updates_data():
     state = SettingsFormState(
         threshold=0.3,
         min_interval=0.4,
+        max_interval=2.5,
         audio_enabled=True,
         audio_mode="file",
         audio_file_path="C:/x.wav",
@@ -110,6 +111,7 @@ def test_apply_form_state_to_config_updates_data():
     )
     apply_form_state_to_config(cfg, state, startup_apply_result=(True, {"enabled": True}))
     assert cfg.data["clap_settings"]["threshold"] == 0.3
+    assert cfg.data["clap_settings"]["max_interval"] == 2.5
     assert cfg.data["audio_settings"]["mode"] == "file"
     assert cfg.data["system"]["startup_delay"] == 2.0
     assert cfg.data["system"]["run_on_startup"] is True

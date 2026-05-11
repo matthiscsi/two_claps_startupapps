@@ -193,6 +193,7 @@ def summarize_routine_next_action(items: list[dict]) -> str:
 def apply_form_state_to_config(config_manager, form_state, startup_apply_result=None):
     config_manager.data["clap_settings"]["threshold"] = float(form_state.threshold)
     config_manager.data["clap_settings"]["min_interval"] = float(form_state.min_interval)
+    config_manager.data["clap_settings"]["max_interval"] = float(form_state.max_interval)
     config_manager.data["audio_settings"]["enabled"] = bool(form_state.audio_enabled)
     config_manager.data["audio_settings"]["mode"] = str(form_state.audio_mode)
     config_manager.data["audio_settings"]["file_path"] = str(form_state.audio_file_path)

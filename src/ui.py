@@ -250,8 +250,10 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
 
         self.threshold_var = tk.DoubleVar()
         self.min_interval_var = tk.DoubleVar()
+        self.max_interval_var = tk.DoubleVar()
         self.threshold_display_var = tk.StringVar(value="0.15")
         self.min_interval_display_var = tk.StringVar(value="0.20 s")
+        self.max_interval_display_var = tk.StringVar(value="2.00 s")
 
         ttk.Label(clap_frame, text="How easy should a clap trigger?", style="SectionTitle.TLabel").grid(
             row=0, column=0, padx=8, pady=(8, 2), sticky="w"
@@ -297,8 +299,30 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
             style="Hint.TLabel",
         ).grid(row=3, column=1, padx=8, sticky="w")
 
+        ttk.Label(clap_frame, text="Maximum gap between two claps", style="SectionTitle.TLabel").grid(
+            row=4, column=0, padx=8, pady=(10, 2), sticky="w"
+        )
+        max_interval_row = ttk.Frame(clap_frame)
+        max_interval_row.grid(row=4, column=1, padx=8, pady=(10, 2), sticky="ew")
+        max_interval_row.columnconfigure(0, weight=1)
+        self.max_interval_scale = ttk.Scale(
+            max_interval_row,
+            orient="horizontal",
+            from_=0.40,
+            to=10.00,
+            variable=self.max_interval_var,
+            command=lambda _v: self._sync_slider_labels(),
+        )
+        self.max_interval_scale.grid(row=0, column=0, sticky="ew")
+        ttk.Label(max_interval_row, textvariable=self.max_interval_display_var, width=8).grid(row=0, column=1, padx=(8, 0))
+        ttk.Label(
+            clap_frame,
+            text="Longer gaps make the double-clap trigger more forgiving, but too long can feel sluggish.",
+            style="Hint.TLabel",
+        ).grid(row=5, column=1, padx=8, sticky="w")
+
         button_row = ttk.Frame(clap_frame)
-        button_row.grid(row=4, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 2))
+        button_row.grid(row=6, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 2))
         calibrate_btn = self._icon_button(
             button_row,
             icon="calibrate",
@@ -317,11 +341,11 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
         device_text = self._get_microphone_label()
         device_color = "red" if "not detected" in device_text.lower() else "#444"
         ttk.Label(clap_frame, text=device_text, foreground=device_color, font=("", 8, "italic")).grid(
-            row=5, column=0, columnspan=2, padx=8, pady=4, sticky="w"
+            row=7, column=0, columnspan=2, padx=8, pady=4, sticky="w"
         )
 
         meter_frame = ttk.Frame(clap_frame)
-        meter_frame.grid(row=6, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        meter_frame.grid(row=8, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
         meter_frame.columnconfigure(1, weight=1)
         ttk.Label(meter_frame, text="Mic Input:", style="SectionTitle.TLabel").grid(row=0, column=0, padx=5, sticky="w")
         self.meter_canvas = tk.Canvas(meter_frame, height=22, bg="#1E1E1E", highlightthickness=0)
@@ -330,7 +354,7 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
         self.state_label.grid(row=0, column=2, padx=5)
 
         self.runtime_status_label = ttk.Label(clap_frame, text="Runtime status: initializing...", style="Status.TLabel")
-        self.runtime_status_label.grid(row=7, column=0, columnspan=2, padx=5, pady=(0, 6), sticky="w")
+        self.runtime_status_label.grid(row=9, column=0, columnspan=2, padx=5, pady=(0, 6), sticky="w")
 
         if self.detector:
             self._monitoring = True
@@ -553,7 +577,7 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
             text=(
                 "1. Ambient noise: stay quiet so Jarvis learns the room floor.\n"
                 "2. Clap samples: clap naturally four to six times.\n"
-                "3. Recommendation: apply threshold and cooldown, then Apply or Save."
+                "3. Recommendation: apply threshold, cooldown, and max gap, then Apply or Save."
             ),
             justify="left",
         ).pack(anchor="w", padx=10, pady=10)
@@ -746,6 +770,7 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
         tracked = [
             self.threshold_var,
             self.min_interval_var,
+            self.max_interval_var,
             self.audio_enabled_var,
             self.audio_mode_var,
             self.audio_file_var,
@@ -792,6 +817,8 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
             self.threshold_display_var.set(f"{float(self.threshold_var.get()):.3f}")
         if hasattr(self, "min_interval_display_var"):
             self.min_interval_display_var.set(f"{float(self.min_interval_var.get()):.2f} s")
+        if hasattr(self, "max_interval_display_var"):
+            self.max_interval_display_var.set(f"{float(self.max_interval_var.get()):.2f} s")
         if hasattr(self, "startup_delay_display_var"):
             self.startup_delay_display_var.set(f"{float(self.startup_delay_var.get()):.1f} s")
         self._update_dashboard_cards()
@@ -817,7 +844,8 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
         self.dashboard_startup_var.set(startup_text)
         if self.calibration_summary_var:
             self.calibration_summary_var.set(
-                f"Current threshold {float(self.threshold_var.get()):.3f}, cooldown {float(self.min_interval_var.get()):.2f}s."
+                f"Current threshold {float(self.threshold_var.get()):.3f}, cooldown {float(self.min_interval_var.get()):.2f}s, "
+                f"max gap {float(self.max_interval_var.get()):.2f}s."
             )
 
     def _refresh_routine_selector(self):
@@ -1296,6 +1324,7 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
             form_state = SettingsFormState(
                 threshold=self.threshold_var.get(),
                 min_interval=self.min_interval_var.get(),
+                max_interval=self.max_interval_var.get(),
                 audio_enabled=self.audio_enabled_var.get(),
                 audio_mode=self.audio_mode_var.get(),
                 audio_file_path=self.audio_file_var.get(),
@@ -1329,9 +1358,10 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
                 self.on_save_callback()
 
             logger.info(
-                "UI_EVENT: settings_applied threshold=%.3f min_interval=%.3f startup_delay=%.2f audio_enabled=%s active_routine=%s",
+                "UI_EVENT: settings_applied threshold=%.3f min_interval=%.3f max_interval=%.3f startup_delay=%.2f audio_enabled=%s active_routine=%s",
                 form_state.threshold,
                 form_state.min_interval,
+                form_state.max_interval,
                 form_state.startup_delay,
                 form_state.audio_enabled,
                 form_state.active_routine,
@@ -1359,6 +1389,7 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
         )
         self.threshold_var.set(state.threshold)
         self.min_interval_var.set(state.min_interval)
+        self.max_interval_var.set(state.max_interval)
         self.audio_enabled_var.set(state.audio_enabled)
         self.audio_mode_var.set(state.audio_mode)
         self.audio_file_var.set(state.audio_file_path)
@@ -1546,19 +1577,22 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
                     clap_intervals,
                     current_threshold=self.threshold_var.get(),
                     current_min_interval=self.min_interval_var.get(),
+                    current_max_interval=self.max_interval_var.get(),
                 )
                 recommendation["value"] = rec
                 info_var.set("Calibration complete.")
                 write_result(
                     f"{rec.summary}\n\nDetected clap samples: {len(clap_peaks)}\n"
                     f"Recommended threshold: {rec.threshold}\n"
-                    f"Recommended cooldown: {rec.min_interval}s"
+                    f"Recommended cooldown: {rec.min_interval}s\n"
+                    f"Recommended max gap: {rec.max_interval}s"
                 )
                 apply_btn.state(["!disabled"])
                 logger.info(
-                    "UI_EVENT: calibration_completed threshold=%.3f min_interval=%.3f confidence=%s claps=%s",
+                    "UI_EVENT: calibration_completed threshold=%.3f min_interval=%.3f max_interval=%.3f confidence=%s claps=%s",
                     rec.threshold,
                     rec.min_interval,
+                    rec.max_interval,
                     rec.confidence,
                     len(clap_peaks),
                 )
@@ -1576,6 +1610,7 @@ class SettingsUI(FirstRunMixin, TroubleshootingMixin):
                 return
             self.threshold_var.set(rec.threshold)
             self.min_interval_var.set(rec.min_interval)
+            self.max_interval_var.set(rec.max_interval)
             self._mark_dirty("Calibration applied (unsaved)")
             messagebox.showinfo(
                 "Calibration Applied",

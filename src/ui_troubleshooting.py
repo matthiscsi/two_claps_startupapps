@@ -282,6 +282,7 @@ class TroubleshootingMixin:
             status=status,
             threshold=float(self.threshold_var.get()),
             min_interval=float(self.min_interval_var.get()),
+            max_interval=float(self.max_interval_var.get()),
             log_dir=get_log_dir(),
             config_path=self.config_manager.config_path,
             startup_enabled=startup_enabled,

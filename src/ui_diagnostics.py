@@ -45,6 +45,7 @@ def build_troubleshooting_summary(
     status: RuntimeStatus,
     threshold: float,
     min_interval: float,
+    max_interval: float,
     log_dir: str,
     config_path: str,
     startup_enabled: bool | None = None,
@@ -62,6 +63,7 @@ def build_troubleshooting_summary(
         f"- Last peak: {status.peak:.3f}\n"
         f"- Threshold: {float(threshold):.3f}\n"
         f"- Min interval: {float(min_interval):.2f}\n"
+        f"- Max interval: {float(max_interval):.2f}\n"
         f"- Log directory: {log_dir}\n"
         f"- Launch history: {get_launch_history_path(log_dir)}\n"
         f"- Config path: {os.path.abspath(config_path)}\n"

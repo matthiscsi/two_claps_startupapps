@@ -8,6 +8,7 @@ from typing import Optional
 class SettingsFormState:
     threshold: float
     min_interval: float
+    max_interval: float
     audio_enabled: bool
     audio_mode: str
     audio_file_path: str
@@ -21,6 +22,7 @@ class SettingsFormState:
         return cls(
             threshold=float(config.clap_settings.get("threshold", 0.15)),
             min_interval=float(config.clap_settings.get("min_interval", 0.2)),
+            max_interval=float(config.clap_settings.get("max_interval", 2.0)),
             audio_enabled=bool(config.audio_settings.get("enabled", False)),
             audio_mode=str(config.audio_settings.get("mode", "tts")),
             audio_file_path=str(config.audio_settings.get("file_path", "")),

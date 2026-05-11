@@ -6,6 +6,7 @@
 - Default config path now uses `%APPDATA%\JarvisLauncher\config.yaml` with safe migration from legacy local `config.yaml`.
 - Tray menu now exposes explicit production actions: Open Settings, Enable/Disable Listening, Run Routine Now, View Logs, and Quit.
 - Tray routine switching now persists the selected active routine to config immediately.
+- Clap timing controls now include `max_interval` in the Control Center, troubleshooting summary, and calibration workflow.
 - Clap detector now supports optional `clap_settings.input_device_index` with fallback to default microphone if the configured device is unavailable.
 - Windows release workflow now publishes portable zip and installer artifacts in addition to the standalone exe.
 - Refactored clap timing logic into a dedicated `DoubleClapStateMachine` for cleaner behavior and better testability.
