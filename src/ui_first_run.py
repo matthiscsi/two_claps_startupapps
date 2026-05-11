@@ -4,7 +4,7 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 
-from src.first_run import mark_first_run_completed, should_show_first_run
+from src.first_run import mark_first_run_completed, mark_first_run_prompt_seen, should_show_first_run
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,11 @@ class FirstRunMixin:
         if not should_show_first_run(self.config_manager.data):
             return
         self._first_run_prompted = True
+        mark_first_run_prompt_seen(self.config_manager.data)
+        try:
+            self.config_manager.save(create_backup=False, backup_reason="first-run-prompt-seen")
+        except Exception:
+            logger.warning("UI_EVENT: first_run_prompt_seen_save_failed", exc_info=True)
         self._open_first_run_setup(auto=True)
 
     def _open_first_run_setup(self, auto=False):

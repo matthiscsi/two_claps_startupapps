@@ -1,4 +1,10 @@
-from src.first_run import config_has_usable_routine, ensure_first_run_metadata, mark_first_run_completed, should_show_first_run
+from src.first_run import (
+    config_has_usable_routine,
+    ensure_first_run_metadata,
+    mark_first_run_completed,
+    mark_first_run_prompt_seen,
+    should_show_first_run,
+)
 from src.ui_animation import next_animation_step, preview_accent, pulse_color
 
 
@@ -17,6 +23,12 @@ def test_first_run_detection_and_metadata():
 def test_first_run_shows_when_no_routine_items_even_after_completion():
     data = {"routines": {"empty": {"items": []}}, "system": {"first_run_completed": True}}
     assert should_show_first_run(data) is True
+
+
+def test_first_run_prompt_seen_suppresses_auto_prompt():
+    data = {"routines": {"morning": {"items": [{"name": "A"}]}}, "system": {"first_run_completed": False}}
+    mark_first_run_prompt_seen(data)
+    assert should_show_first_run(data) is False
 
 
 def test_animation_helpers_are_stable():

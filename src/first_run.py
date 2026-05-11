@@ -17,6 +17,8 @@ def should_show_first_run(config_data: dict) -> bool:
     system = (config_data or {}).get("system", {})
     if not isinstance(system, dict):
         return True
+    if system.get("first_run_prompt_seen", False):
+        return False
     if not system.get("first_run_completed", False):
         return True
     return not config_has_usable_routine(config_data)
@@ -25,10 +27,17 @@ def should_show_first_run(config_data: dict) -> bool:
 def mark_first_run_completed(config_data: dict) -> None:
     system = config_data.setdefault("system", {})
     system["first_run_completed"] = True
+    system["first_run_prompt_seen"] = True
     system["last_control_center_version"] = CONTROL_CENTER_VERSION
+
+
+def mark_first_run_prompt_seen(config_data: dict) -> None:
+    system = config_data.setdefault("system", {})
+    system["first_run_prompt_seen"] = True
 
 
 def ensure_first_run_metadata(config_data: dict) -> None:
     system = config_data.setdefault("system", {})
     system.setdefault("first_run_completed", False)
+    system.setdefault("first_run_prompt_seen", False)
     system.setdefault("last_control_center_version", CONTROL_CENTER_VERSION)

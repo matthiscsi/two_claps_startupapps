@@ -93,6 +93,7 @@ DEFAULT_CONFIG = {
         "startup_delay": 0.0,
         "active_routine": "morning_routine",
         "first_run_completed": False,
+        "first_run_prompt_seen": False,
         "last_control_center_version": "2",
     },
     "logging": {
@@ -207,6 +208,7 @@ class Config:
             else:
                 system["active_routine"] = "morning_routine"
         system.setdefault("first_run_completed", False)
+        system.setdefault("first_run_prompt_seen", False)
         system.setdefault("last_control_center_version", "2")
 
     def save(self, create_backup=False, backup_reason="save"):
@@ -244,6 +246,7 @@ class Config:
                 "startup_delay": 0.0,
                 "active_routine": "morning_routine",
                 "first_run_completed": False,
+                "first_run_prompt_seen": False,
                 "last_control_center_version": "2",
             },
         )
