@@ -239,13 +239,19 @@ class JarvisApp:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def set_active_routine(self, routine_name, source="unknown"):
+    def set_active_routine(self, routine_name, source="unknown", persist=False):
         if routine_name not in self.config.routines:
             self.logger.warning("EVENT: routine_switch_failed source=%s routine=%s reason=not_found", source, routine_name)
             return False
         self.args.routine = routine_name
         self.config.data.setdefault("system", {})
         self.config.data["system"]["active_routine"] = routine_name
+        if persist:
+            try:
+                self.config.save()
+            except Exception:
+                self.logger.error("EVENT: routine_switch_persist_failed source=%s routine=%s", source, routine_name, exc_info=True)
+                return False
         self.logger.info("EVENT: routine_switched source=%s routine=%s", source, routine_name)
         if self.tray_icon:
             try:
@@ -345,7 +351,7 @@ class JarvisApp:
 
         def make_routine_handler(routine_name):
             def _handler(icon, item):
-                self.set_active_routine(routine_name, source="tray_switch")
+                self.set_active_routine(routine_name, source="tray_switch", persist=True)
             return _handler
 
         routine_items = [
