@@ -35,10 +35,10 @@ class ClapDetector:
         self.clap_count = 0
         self.state = "IDLE"
         self.recent_peaks = deque(maxlen=8)
-        self.max_transient_duration_sec = self.settings.get("max_transient_duration", 0.012)
-        self.crest_factor_min = self.settings.get("crest_factor_min", 4.0)
-        self.sustained_peak_ratio = self.settings.get("sustained_peak_ratio", 0.60)
-        self.max_sustained_frames = int(self.settings.get("max_sustained_frames", 3))
+        self.max_transient_duration_sec = float(self.settings.get("max_transient_duration", 0.02))
+        self.crest_factor_min = float(self.settings.get("crest_factor_min", 3.0))
+        self.sustained_peak_ratio = float(self.settings.get("sustained_peak_ratio", 0.75))
+        self.max_sustained_frames = int(self.settings.get("max_sustained_frames", 4))
         self.input_device_index = self.settings.get("input_device_index")
         self.machine = DoubleClapStateMachine(
             min_interval=self.min_interval,
@@ -60,6 +60,7 @@ class ClapDetector:
             min_interval=self.min_interval,
             max_interval=self.max_interval,
         )
+        self.recent_peaks.clear()
 
     def _is_transient_clap(self, frame_filtered):
         """
@@ -218,6 +219,7 @@ class ClapDetector:
 
         self.machine.reset()
         self.clap_count = 0
+        self.recent_peaks.clear()
         filter_state = np.zeros((self.sos.shape[0], 2))
         start_time = time.monotonic()
 

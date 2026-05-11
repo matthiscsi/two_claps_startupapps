@@ -26,6 +26,14 @@ def test_transient_clap_is_accepted():
     assert ok is True
 
 
+def test_damped_clap_like_transient_is_accepted():
+    det = _make_detector()
+    t = np.arange(det.frame_size, dtype=np.float32)
+    frame = np.sin(2 * np.pi * 1600 * t / det.sampling_rate) * np.exp(-t / 250.0) * 0.7
+    ok, reason = det._is_transient_clap(frame.astype(np.float32))
+    assert ok is True, reason
+
+
 def test_sustained_signal_is_rejected():
     det = _make_detector()
     frame = np.ones(det.frame_size, dtype=np.float32) * 0.2

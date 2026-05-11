@@ -42,6 +42,10 @@ DEFAULT_CONFIG = {
         "order": 2,
         "sampling_rate": 44100,
         "frame_duration": 0.02,
+        "max_transient_duration": 0.02,
+        "crest_factor_min": 3.0,
+        "sustained_peak_ratio": 0.75,
+        "max_sustained_frames": 4,
         "input_device_index": None,
     },
     "routines": {
